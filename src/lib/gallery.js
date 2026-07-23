@@ -13,7 +13,7 @@ const IMG_EXT = /\.(jpe?g|png|webp|gif)(\?|$)/i;
 // Acoperă lazy-loading (data-src/data-lazy-src/srcset) și link-urile către
 // varianta full-size (<a href="...jpg"> pe thumbnail). La final, variantele
 // aceleiași poze (-800x600 vs. full) se deduplică, păstrând-o pe cea mare.
-export async function extractGallery(articleUrl, feedContentHtml) {
+export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "") {
   const urls = [];
   const push = (u) => {
     const url = decodeEntities((u || "").trim());
@@ -63,6 +63,10 @@ export async function extractGallery(articleUrl, feedContentHtml) {
       if (IMG_EXT.test(m[1])) push(m[1]);
     }
   };
+
+  // 0) poza principală din <media:content> (featured image; la unele site-uri
+  // e SINGURA poză — content:encoded nu are niciun <img>)
+  if (mediaUrl) push(mediaUrl);
 
   // 1) pozele din content:encoded (feed)
   collectFromHtml(feedContentHtml);

@@ -93,7 +93,7 @@ async function processSite(site, { force, dry }) {
     );
     if (claim.rowCount === 0) continue; // deja postat sau revendicat/în carantină
 
-    const gallery = await extractGallery(item.link, item.contentEncoded);
+    const gallery = await extractGallery(item.link, item.contentEncoded, item.mediaUrl);
     const caption =
       (await aiCaption(site, item.title, item.contentEncoded || item.description)) ||
       fallbackCaption(item.title);

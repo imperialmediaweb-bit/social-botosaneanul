@@ -13,14 +13,26 @@ export function decodeEntities(s) {
     .replace(/&#8221;/g, "”")
     .replace(/&#8211;/g, "–")
     .replace(/&#8212;/g, "—")
-    .replace(/&nbsp;/g, " ");
+    .replace(/&nbsp;/g, " ")
+    // entități numerice generice (&#038; = &, &#x26; = & etc.) — feed-urile WP
+    // le folosesc în URL-uri; fără decodare, URL-urile semnate de CDN se corup
+    .replace(/&#(\d+);/g, (_, n) => {
+      try { return String.fromCodePoint(parseInt(n, 10)); } catch { return _; }
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => {
+      try { return String.fromCodePoint(parseInt(n, 16)); } catch { return _; }
+    });
 }
 
 export function extractTag(block, tag) {
-  const cdata = new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]></${tag}>`, "i").exec(block);
+  // whitespace permis între tag și CDATA (feed-urile Atom pun newline acolo)
+  const cdata = new RegExp(`<${tag}[^>]*>\\s*<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>\\s*</${tag}>`, "i").exec(block);
   if (cdata) return decodeEntities(cdata[1].trim());
   const plain = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i").exec(block);
-  return plain ? decodeEntities(plain[1].trim()) : "";
+  if (!plain) return "";
+  // dacă fallback-ul a prins totuși un CDATA nedetectat, scoate-i învelișul
+  const inner = plain[1].trim().replace(/^<!\[CDATA\[([\s\S]*?)\]\]>$/, "$1").trim();
+  return decodeEntities(inner);
 }
 
 export function stripHtml(html) {
