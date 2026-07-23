@@ -1,23 +1,26 @@
 import { decodeEntities } from "./entities.js";
 
-const IMG_BLACKLIST = /logo|avatar|icon|emoji|gravatar|pixel|badge|banner-|widget|sprite|placeholder|blank\.|spacer|\.svg(\?|$)/i;
+const IMG_BLACKLIST = /logo|avatar|icon|emoji|gravatar|pixel|badge|banner-|widget|sprite|placeholder|blank\.|spacer|zodiac|-flag\.|favicon|netopia|trafic-ro|google-news|\.svg(\?|$)/i;
 const IMG_EXT = /\.(jpe?g|png|webp|gif)(\?|$)/i;
 
 // Extrage galeria articolului. REGULA DE AUR: mai bine mai puține poze decât
-// o poză străină (reclamă, alt articol, logo). De aceea:
+// o poză străină (reclamă, alt articol, logo).
 //
 //   SURSE DE ÎNCREDERE (aparțin sigur articolului, orice domeniu):
 //     1. <media:content> din feed
 //     2. <img>-urile din content:encoded / summary (feed)
 //     3. og:image de pe pagina articolului
+//     4. imaginile din JSON-LD (schema.org NewsArticle → image/thumbnailUrl;
+//        NU author.image / logo)
 //
-//   SURSE DE PE PAGINĂ (condiționate):
-//     4. pozele din CONTAINERUL ARTICOLULUI (dacă îl identificăm sigur)
-//     5. containerele explicit de GALERIE (clase gen galerie/gallery), doar
-//        după titlul <h1> al articolului
-//     - ambele DOAR cu poze de pe domeniul site-ului (nu Google, nu ads)
-//     - NICIODATĂ fallback pe toată pagina: dacă nu găsim containerul,
-//       rămânem cu sursele de încredere.
+//   SURSE DE PE PAGINĂ (doar poze de pe domeniul site-ului):
+//     5. containerele articolului (identificate explicit după clasă; se
+//        extrag cu numărare de adâncime, ca div-urile de reclame injectate
+//        în corp să nu taie parcurgerea)
+//     6. containerele de galerie (galerie/gallery/swiper/lightbox etc.),
+//        doar după titlul <h1>
+//     7. linkurile <a data-gallery=...> (lightbox-ul galeriilor)
+//     - NICIODATĂ fallback pe toată pagina.
 export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "") {
   const urls = [];
   let siteDomain = "";
@@ -36,9 +39,11 @@ export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "")
         if (!siteDomain || !(host === siteDomain || host.endsWith(`.${siteDomain}`))) return;
       } catch { return; }
     }
-    // dimensiuni mici în URL (ex: -150x150.jpg) → thumbnail, skip
-    const dim = /-(\d{2,4})x(\d{2,4})\.(jpe?g|png|webp)/i.exec(url);
+    // dimensiuni mici în URL (ex: -150x150.jpg sau 728x90) → thumbnail/reclamă
+    const dim = /(?:-|_|\/)(\d{2,4})x(\d{2,4})[.-]/i.exec(url);
     if (dim && (parseInt(dim[1], 10) < 400 || parseInt(dim[2], 10) < 250)) return;
+    // variantele grid-/large- ale aceleiași poze sunt thumbnails de listing
+    if (/\/(?:grid|thumb|small)-[^/]+$/i.test(url)) return;
     if (!urls.includes(url)) urls.push(url);
   };
   const pushTrusted = (u) => accept(u, { requireSameDomain: false });
@@ -60,7 +65,6 @@ export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "")
   const collectFromHtml = (html, push) => {
     if (!html) return;
     let m;
-    // <img>: întâi atributele de lazy-load (au varianta reală/mare), apoi src
     const reImg = /<img[^>]+>/gi;
     while ((m = reImg.exec(html)) !== null) {
       const tag = m[0];
@@ -80,22 +84,13 @@ export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "")
     while ((m = reA.exec(html)) !== null) {
       if (IMG_EXT.test(m[1])) push(m[1]);
     }
-    // URL-uri de poze din JSON-ul <script>-urilor DIN INTERIORUL zonei date
-    // (galeriile JS își țin pozele acolo, cu slash-uri escapate)
-    const reScript = /<script[^>]*>([\s\S]*?)<\/script>/gi;
-    let s;
-    while ((s = reScript.exec(html)) !== null) {
-      const reJsonImg = /https?:\\?\/\\?\/[^"'\s\\]+(?:\\\/[^"'\s\\]+)*\.(?:jpe?g|png|webp)/gi;
-      let j;
-      while ((j = reJsonImg.exec(s[1])) !== null) push(j[0].replace(/\\\//g, "/"));
-    }
   };
 
   // 1-2) sursele de încredere din feed
   if (mediaUrl) pushTrusted(mediaUrl);
   collectFromHtml(feedContentHtml, pushTrusted);
 
-  // 3-5) pagina articolului
+  // 3-7) pagina articolului
   try {
     const res = await fetch(articleUrl, {
       headers: {
@@ -107,35 +102,106 @@ export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "")
     if (res.ok) {
       const html = await res.text();
 
-      // 3) og:image — poza oficială a articolului (de încredere)
+      // 3) og:image — poza oficială a articolului
       const og = /<meta[^>]+property=["']og:image(?::url)?["'][^>]+content=["']([^"']+)["']/i.exec(html)
         || /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::url)?["']/i.exec(html);
       if (og) pushTrusted(og[1]);
 
-      // 4) containerul articolului — DOAR dacă îl identificăm explicit
-      const bodyMatch =
-        /<[a-z]+[^>]+itemprop=["']articleBody["'][\s\S]*?<\/(?:div|section|article)>/i.exec(html) ||
-        /<(?:div|section|article)[^>]+(?:class|id)=["'][^"']*(?:entry-content|post-content|article-content|article-body|articleBody|td-post-content|single-content|story-body|post-body|content-article)[^"']*["'][\s\S]*?<\/(?:div|section|article)>/i.exec(html) ||
-        /<article[\s>][\s\S]*?<\/article>/i.exec(html);
-      if (bodyMatch) collectFromHtml(bodyMatch[0], pushPage);
+      // 4) JSON-LD: imaginile declarate ale articolului (nu author/logo)
+      for (const img of jsonLdArticleImages(html)) pushTrusted(img);
 
-      // 5) containerele explicit de GALERIE, doar după titlul articolului
-      //    (cuvinte specifice de galerie foto — NU slider/carousel, alea sunt
-      //    de obicei „ultimele știri" cu poze din ALTE articole)
-      const h1At = html.search(/<h1[\s>]/i);
-      const reGal = /<(?:div|ul|section|figure)[^>]+(?:class|id)=["'][^"']*(?:galerie|gallery|photoswipe|lightgallery|fotorama)[^"']*["'][\s\S]*?<\/(?:div|ul|section|figure)>/gi;
-      let g;
-      while ((g = reGal.exec(html)) !== null) {
-        if (h1At === -1 || g.index > h1At) collectFromHtml(g[0], pushPage);
+      // 5) containerele articolului (toate aparițiile, extrase balansat)
+      const reBody = /<(?:div|section|article)[^>]+(?:itemprop=["']articleBody["']|class=["'][^"']*(?:entry-content|post-content|article-content|article-body|td-post-content|single-content|story-body|post-body|content-article|article-context)[^"']*["'])[^>]*>|<(?:div|section)[^>]+class=["'](?:[^"']*\s)?content(?:\s[^"']*)?["'][^>]*>|<article[\s>]/gi;
+      let b;
+      let containers = 0;
+      while ((b = reBody.exec(html)) !== null && containers < 8) {
+        collectFromHtml(sliceBalanced(html, b.index), pushPage);
+        containers++;
       }
-      // FĂRĂ fallback pe toată pagina — dacă n-am găsit nimic, rămânem cu
-      // sursele de încredere (mai bine 1 poză corectă decât 10 dubioase).
+
+      // 6) containerele de galerie, doar după titlul articolului
+      const h1At = html.search(/<h1[\s>]/i);
+      const reGal = /<(?:div|ul|section|figure)[^>]+(?:class|id)=["'][^"']*(?:galerie|gallery|image-gallery|photoswipe|lightgallery|fotorama|swiper)[^"']*["'][^>]*>/gi;
+      let g;
+      let galleries = 0;
+      while ((g = reGal.exec(html)) !== null && galleries < 8) {
+        if (h1At === -1 || g.index > h1At) {
+          collectFromHtml(sliceBalanced(html, g.index), pushPage);
+          galleries++;
+        }
+      }
+
+      // 7) linkurile de lightbox ale galeriei (<a data-gallery=... href=...>)
+      const reLb = /<a[^>]+data-gallery=[^>]*>/gi;
+      let lb;
+      while ((lb = reLb.exec(html)) !== null) {
+        const href = /href=["']([^"']+)["']/i.exec(lb[0]);
+        if (href && IMG_EXT.test(href[1])) pushPage(href[1]);
+      }
+      // FĂRĂ fallback pe toată pagina.
     }
   } catch {
     /* rămânem cu ce avem din feed */
   }
 
   return dedupeSizeVariants(urls).slice(0, 10); // limita album FB
+}
+
+// Extrage elementul de la openIdx cu tot conținutul, numărând adâncimea
+// tagurilor de același tip — regex-ul non-greedy s-ar opri la primul
+// </div>, care poate fi al unei reclame injectate în corpul articolului.
+function sliceBalanced(html, openIdx) {
+  const t = /^<([a-z]+)/i.exec(html.slice(openIdx, openIdx + 20));
+  if (!t) return "";
+  const tag = t[1].toLowerCase();
+  const re = new RegExp(`<${tag}[\\s>]|</${tag}>`, "gi");
+  re.lastIndex = openIdx;
+  let depth = 0;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    if (m[0][1] === "/") {
+      depth--;
+      if (depth <= 0) return html.slice(openIdx, m.index + m[0].length);
+    } else {
+      depth++;
+    }
+    if (m.index - openIdx > 500000) break; // limită de siguranță
+  }
+  return html.slice(openIdx, openIdx + 200000);
+}
+
+// Imaginile din blocurile JSON-LD schema.org, dar DOAR ale obiectelor de tip
+// Article/NewsArticle (image, thumbnailUrl) — nu author.image, nu logo.
+function jsonLdArticleImages(html) {
+  const out = [];
+  const reLd = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = reLd.exec(html)) !== null) {
+    try {
+      const data = JSON.parse(m[1]);
+      const stack = [data];
+      while (stack.length) {
+        const node = stack.pop();
+        if (Array.isArray(node)) {
+          stack.push(...node);
+        } else if (node && typeof node === "object") {
+          const type = String(node["@type"] || "");
+          if (/Article/i.test(type)) {
+            for (const val of [node.image, node.thumbnailUrl]) {
+              for (const v of Array.isArray(val) ? val : [val]) {
+                if (typeof v === "string") out.push(v);
+                else if (v && typeof v === "object" && typeof v.url === "string") out.push(v.url);
+              }
+            }
+          }
+          for (const k of ["@graph", "mainEntity", "itemListElement"]) {
+            if (node[k]) stack.push(node[k]);
+          }
+        }
+      }
+    } catch { /* JSON invalid → ignorăm blocul */ }
+  }
+  return out;
 }
 
 // Aceeași poză apare des în mai multe mărimi (foto-800x600.jpg + foto.jpg).
