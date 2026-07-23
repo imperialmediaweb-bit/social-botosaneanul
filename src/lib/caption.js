@@ -9,7 +9,7 @@ export function fallbackCaption(title) {
 // Caption AI: 2-3 propoziții, strict faptic, FĂRĂ întrebare finală (decizie fermă).
 // La orice eroare → fallback pe titlu simplu.
 export async function aiCaption(site, title, rawSummaryHtml) {
-  const apiKey = process.env[site.openaiKeyEnv] || process.env.OPENAI_API_KEY;
+  const apiKey = site.openai_api_key || process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
   const summary = stripHtml(rawSummaryHtml).slice(0, 900);

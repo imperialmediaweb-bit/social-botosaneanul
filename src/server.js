@@ -1,13 +1,16 @@
 import express from "express";
 import { ensureSchema } from "./db.js";
 import { runSocialPost } from "./cron.js";
-import { SITES } from "./sites.js";
+import { seedSitesFromEnv } from "./sites.js";
+import { admin } from "./admin.js";
 
 const app = express();
 
 app.get("/", (_req, res) => {
-  res.json({ ok: true, service: "social-botosaneanul", sites: SITES.map((s) => s.slug) });
+  res.json({ ok: true, service: "social-botosaneanul", admin: "/admin" });
 });
+
+app.use("/admin", admin);
 
 app.get("/api/cron/social-post", async (req, res) => {
   const secret = process.env.CRON_SECRET;
@@ -31,6 +34,7 @@ app.get("/api/cron/social-post", async (req, res) => {
 const port = parseInt(process.env.PORT || "3000", 10);
 
 ensureSchema()
+  .then(() => seedSitesFromEnv())
   .then(() => {
     app.listen(port, () => console.log(`social-bot ascultă pe :${port}`));
   })

@@ -1,5 +1,5 @@
 import { pool, acquireLock, releaseLock } from "./db.js";
-import { SITES } from "./sites.js";
+import { getSites } from "./sites.js";
 import { fetchFeedItems } from "./lib/rss.js";
 import { extractGallery } from "./lib/gallery.js";
 import { aiCaption, fallbackCaption } from "./lib/caption.js";
@@ -32,8 +32,9 @@ export async function runSocialPost({ siteSlug = null, force = false, dry = fals
   if (!gotLock) return { skipped: "locked" };
 
   try {
-    const sites = siteSlug ? SITES.filter((s) => s.slug === siteSlug) : SITES;
-    if (sites.length === 0) return { error: `Site necunoscut: ${siteSlug}` };
+    const all = await getSites({ activeOnly: !siteSlug });
+    const sites = siteSlug ? all.filter((s) => s.slug === siteSlug) : all;
+    if (sites.length === 0) return { error: siteSlug ? `Site necunoscut: ${siteSlug}` : "niciun site activ" };
 
     const results = [];
     for (const site of sites) {
@@ -47,10 +48,10 @@ export async function runSocialPost({ siteSlug = null, force = false, dry = fals
 
 async function processSite(site, { force, dry }) {
   const out = { site: site.slug };
-  const pageId = process.env[site.pageIdEnv];
-  const token = process.env[site.tokenEnv];
+  const pageId = site.fb_page_id;
+  const token = site.fb_access_token;
   if (!pageId || !token) {
-    return { ...out, skipped: `env lipsă: ${site.pageIdEnv} / ${site.tokenEnv}` };
+    return { ...out, skipped: "pagina FB neconfigurată (Page ID / token lipsă — setează-le în /admin)" };
   }
 
   // Carantina expirată: claim-uri fără fb_post_id mai vechi de 20 min → se pot reîncerca.
@@ -75,7 +76,7 @@ async function processSite(site, { force, dry }) {
 
   let items;
   try {
-    items = await fetchFeedItems(site.feedUrl);
+    items = await fetchFeedItems(site.feed_url);
   } catch (e) {
     return { ...out, error: `feed: ${e.message}` };
   }

@@ -20,6 +20,17 @@ export async function ensureSchema() {
       name TEXT PRIMARY KEY,
       locked_at TIMESTAMP DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS sites (
+      slug TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      feed_url TEXT NOT NULL,
+      fb_page_id TEXT NOT NULL DEFAULT '',
+      fb_access_token TEXT NOT NULL DEFAULT '',
+      openai_api_key TEXT NOT NULL DEFAULT '',
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
   `);
 }
 

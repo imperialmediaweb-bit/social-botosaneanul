@@ -59,7 +59,23 @@ Graph API Explorer → user token cu `pages_manage_posts,pages_read_engagement`
 întâi user token-ul în long-lived). Atenție: token-urile mor la schimbarea
 parolei contului — se regenerează, nu e bug.
 
-## Urmează (după legarea la Railway)
+## Panoul de admin (`/admin`)
 
-- Panou de admin pentru conectarea paginilor FB (site-uri în tabelul `sites`
-  din DB în loc de env vars).
+Protejat cu parolă — setează `ADMIN_PASSWORD` în env (fără ea panoul e
+dezactivat). Din panou:
+
+- **conectezi paginile FB**: adaugi/editezi site-uri (nume, feed RSS/Atom,
+  Page ID, token de pagină, cheie OpenAI opțională) — totul stă în tabelul
+  `sites` din DB, nu mai depinzi de env vars
+- **🔎 Verifică token** — confirmă prin Graph API că tokenul e valid și pe ce
+  pagină e legat
+- **🧪 Dry-run** — vezi ce AR posta (caption + toate pozele din galerie,
+  cu preview), fără să postezi
+- **🚀 Postează acum** — postează manual primul articol nepostat
+- **⏸️ / ▶️** — oprești/pornești postarea automată per site
+- istoricul ultimelor postări, cu link spre Facebook
+
+La pornire, site-urile default (Botoșăneanul, Martor Incomod) se adaugă
+automat dacă lipsesc, preluând valorile din env dacă există; restul se
+configurează din panou. Site-urile fără Page ID + token sunt sărite de cron
+până le conectezi.
