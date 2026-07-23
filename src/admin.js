@@ -197,6 +197,22 @@ admin.post("/sites/:slug/delete", async (req, res) => {
 
 const pendingPages = new Map(); // key -> { pages, exp } (ține 10 min)
 
+// Toate permisiunile de pagină utile: postări + poze/albume, Reels și
+// Stories (pages_manage_posts le acoperă pe toate trei), comentarii ca
+// pagină (pages_manage_engagement), citirea comentariilor vizitatorilor
+// (pages_read_user_content), metadate, statistici (read_insights) și
+// paginile deținute prin Business Manager (business_management).
+const FB_SCOPES = [
+  "pages_show_list",
+  "pages_manage_posts",
+  "pages_read_engagement",
+  "pages_manage_engagement",
+  "pages_read_user_content",
+  "pages_manage_metadata",
+  "read_insights",
+  "business_management",
+].join(",");
+
 function fbConfigured() {
   return !!(process.env.FB_APP_ID && process.env.FB_APP_SECRET);
 }
@@ -227,7 +243,7 @@ FB_APP_SECRET=App Secret (apasă Show lângă el)</pre>
   const url =
     `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(process.env.FB_APP_ID)}` +
     `&redirect_uri=${encodeURIComponent(redirect)}&state=${oauthState()}` +
-    `&scope=${encodeURIComponent("pages_show_list,pages_manage_posts,pages_read_engagement,pages_manage_engagement")}`;
+    `&scope=${encodeURIComponent(FB_SCOPES)}`;
   res.redirect(url);
 });
 
