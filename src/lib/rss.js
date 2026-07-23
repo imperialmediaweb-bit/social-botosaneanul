@@ -37,8 +37,9 @@ export function parseFeed(xml) {
     // DOAR aici, nu și în content:encoded)
     const media = /<media:content[^>]+url=["']([^"']+)["']/i.exec(block);
     const mediaUrl = media ? decodeEntities(media[1]) : "";
+    const publishedAt = parseDate(extractTag(block, "pubDate"));
     if (!title || !/^https?:\/\//i.test(link)) continue;
-    items.push({ title, link, description, contentEncoded, mediaUrl });
+    items.push({ title, link, description, contentEncoded, mediaUrl, publishedAt });
   }
   if (items.length > 0) return items;
 
@@ -52,8 +53,15 @@ export function parseFeed(xml) {
       /<link[^>]*href=["']([^"']+)["']/i.exec(block);
     const link = linkM ? decodeEntities(linkM[1]) : "";
     const summary = extractTag(block, "summary") || extractTag(block, "content");
+    const publishedAt = parseDate(extractTag(block, "published") || extractTag(block, "updated"));
     if (!title || !/^https?:\/\//i.test(link)) continue;
-    items.push({ title, link, description: summary, contentEncoded: summary, mediaUrl: "" });
+    items.push({ title, link, description: summary, contentEncoded: summary, mediaUrl: "", publishedAt });
   }
   return items;
+}
+
+function parseDate(s) {
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
 }

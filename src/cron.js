@@ -9,6 +9,8 @@ const LOCK_NAME = "social-post";
 const THROTTLE_MINUTES = 15; // max 1 postare / 15 min / pagină
 const QUARANTINE_MINUTES = 20; // anti ghost-post: fără retry 20 min după orice tentativă
 const DRY_RUN_MAX_ITEMS = 5;
+// doar articole proaspete: mai vechi de atât (ore) nu se postează niciodată
+const MAX_ARTICLE_AGE_HOURS = parseInt(process.env.MAX_ARTICLE_AGE_HOURS || "24", 10);
 
 function isBusinessHoursRomania() {
   const h = parseInt(
@@ -66,7 +68,7 @@ async function processSite(site, { force, dry }) {
   if (!force && !dry) {
     const t = await pool.query(
       `SELECT 1 FROM external_fb_posts
-       WHERE page_id = $1 AND fb_post_id IS NOT NULL
+       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id <> 'baseline'
          AND posted_at > NOW() - make_interval(mins => $2)
        LIMIT 1`,
       [pageId, THROTTLE_MINUTES]
@@ -82,8 +84,41 @@ async function processSite(site, { force, dry }) {
   }
   out.feedItems = items.length;
 
+  // PRIMA ACTIVARE pe pagina asta: tot ce există deja în feed se marchează ca
+  // „văzut" FĂRĂ să se posteze — de aici încolo se postează doar articolele
+  // care apar NOI în feed. (Nu rulează la dry-run, ca să poți testa liniștit.)
+  if (!dry) {
+    const base = await pool.query(
+      `SELECT 1 FROM external_fb_posts WHERE page_id = $1 AND item_url = '__baseline__'`,
+      [pageId]
+    );
+    if (base.rowCount === 0) {
+      for (const item of items) {
+        await pool.query(
+          `INSERT INTO external_fb_posts (page_id, item_url, fb_post_id)
+           VALUES ($1, $2, 'baseline') ON CONFLICT (page_id, item_url) DO NOTHING`,
+          [pageId, item.link]
+        );
+      }
+      await pool.query(
+        `INSERT INTO external_fb_posts (page_id, item_url, fb_post_id)
+         VALUES ($1, '__baseline__', 'baseline') ON CONFLICT (page_id, item_url) DO NOTHING`,
+        [pageId]
+      );
+      return {
+        ...out,
+        baselined: items.length,
+        note: "prima activare: articolele existente au fost marcate ca văzute, fără postare — de acum se postează doar ce apare NOU în feed",
+      };
+    }
+  }
+
   const dryReport = [];
   for (const item of items) {
+    // doar articole din ziua curentă (max 24h; MAX_ARTICLE_AGE_HOURS în env)
+    if (item.publishedAt && Date.now() - item.publishedAt.getTime() > MAX_ARTICLE_AGE_HOURS * 3600 * 1000) {
+      continue;
+    }
     // CLAIM ATOMIC înainte de orice: doar rularea care câștigă INSERT-ul postează.
     const claim = await pool.query(
       `INSERT INTO external_fb_posts (page_id, item_url, fb_post_id)
