@@ -65,8 +65,26 @@ admin.get("/logout", (req, res) => {
 
 // ---------- dashboard ----------
 
+// Starea tokenului, verificată live la încărcarea dashboardului (timeout
+// scurt ca pagina să nu atârne dacă Graph API e lent).
+async function tokenStatus(site) {
+  if (!site.fb_page_id || !site.fb_access_token) return { state: "unconfigured" };
+  try {
+    const r = await fetch(
+      `https://graph.facebook.com/v21.0/${encodeURIComponent(site.fb_page_id)}?fields=id,name&access_token=${encodeURIComponent(site.fb_access_token)}`,
+      { signal: AbortSignal.timeout(6000), cache: "no-store" }
+    );
+    const data = await r.json();
+    if (data.error) return { state: "invalid", message: data.error.message || "token invalid" };
+    return { state: "ok", pageName: data.name };
+  } catch {
+    return { state: "unknown" };
+  }
+}
+
 admin.get("/", async (req, res) => {
   const sites = await getSites();
+  const statuses = await Promise.all(sites.map(tokenStatus));
   const { rows: lastPosts } = await pool.query(
     `SELECT p.page_id, p.item_url, p.fb_post_id, p.posted_at, s.name AS site_name
      FROM external_fb_posts p
@@ -75,17 +93,22 @@ admin.get("/", async (req, res) => {
      ORDER BY p.posted_at DESC LIMIT 20`
   );
 
-  const siteRows = await Promise.all(sites.map(async (s) => {
+  const siteRows = await Promise.all(sites.map(async (s, i) => {
     const { rows } = await pool.query(
       `SELECT MAX(posted_at) AS last, COUNT(*)::int AS n
        FROM external_fb_posts WHERE page_id = $1 AND fb_post_id IS NOT NULL`,
       [s.fb_page_id || "-"]
     );
-    const configured = s.fb_page_id && s.fb_access_token;
+    const st = statuses[i];
+    const tokenCell =
+      st.state === "ok" ? `✅ <b>${esc(st.pageName)}</b><br><small>${esc(s.fb_page_id)}</small>` :
+      st.state === "invalid" ? `❌ <span class="err">TOKEN MORT</span><br><small>${esc(st.message.slice(0, 90))}</small><br><small>→ regenerează tokenul și pune-l la ✏️ Editează</small>` :
+      st.state === "unconfigured" ? `⚠️ neconfigurat` :
+      `❓ ${esc(s.fb_page_id)} <small>(Graph API n-a răspuns)</small>`;
     return `<tr>
       <td><b>${esc(s.name)}</b><br><small>${esc(s.slug)}</small></td>
       <td><small>${esc(s.feed_url)}</small></td>
-      <td>${configured ? `✅ ${esc(s.fb_page_id)}` : `⚠️ neconfigurat`}</td>
+      <td>${tokenCell}</td>
       <td>${s.active ? "🟢 activ" : "⏸️ oprit"}</td>
       <td><small>${rows[0].n} postări${rows[0].last ? `<br>ultima: ${fmtDate(rows[0].last)}` : ""}</small></td>
       <td class="actions">
