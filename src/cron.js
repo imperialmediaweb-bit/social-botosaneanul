@@ -123,10 +123,14 @@ async function processSite(site, { force, dry }) {
         fbPostId = r.id;
       }
 
+      // linkul articolului în PRIMUL COMENTARIU — bug-urile aici nu mai sunt
+      // tăcute: postarea rămâne, dar raportăm de ce n-a apărut comentariul
+      let commentStatus = "ok";
       try {
         await commentOnPost(fbPostId, token, `📖 Citește articolul: ${item.link}`);
-      } catch {
-        /* comentariul e best-effort; postarea rămâne */
+      } catch (e) {
+        commentStatus = e.message;
+        console.error(`comentariu eșuat pe ${fbPostId}:`, e.message);
       }
 
       await pool.query(
@@ -135,7 +139,7 @@ async function processSite(site, { force, dry }) {
         [pageId, item.link, fbPostId]
       );
 
-      return { ...out, posted: { title: item.title, link: item.link, fbPostId, photos: gallery.length } };
+      return { ...out, posted: { title: item.title, link: item.link, fbPostId, photos: gallery.length, comment: commentStatus } };
     } catch (e) {
       // NU ștergem claim-ul imediat (anti ghost-post): rămâne în carantină 20 min,
       // apoi cleanup-ul de la începutul rulării îl eliberează pentru retry.

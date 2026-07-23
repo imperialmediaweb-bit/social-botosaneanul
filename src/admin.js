@@ -227,7 +227,7 @@ FB_APP_SECRET=App Secret (apasă Show lângă el)</pre>
   const url =
     `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(process.env.FB_APP_ID)}` +
     `&redirect_uri=${encodeURIComponent(redirect)}&state=${oauthState()}` +
-    `&scope=${encodeURIComponent("pages_show_list,pages_manage_posts,pages_read_engagement")}`;
+    `&scope=${encodeURIComponent("pages_show_list,pages_manage_posts,pages_read_engagement,pages_manage_engagement")}`;
   res.redirect(url);
 });
 
@@ -362,7 +362,11 @@ admin.post("/sites/:slug/run-now", async (req, res) => {
   const r = result.results?.[0] || result;
   let body;
   if (r.posted) {
-    body = `<p>✅ Postat: <b>${esc(r.posted.title)}</b> (${r.posted.photos} poze)</p>
+    const c = r.posted.comment === "ok"
+      ? `<p>💬 Linkul articolului a fost pus în primul comentariu.</p>`
+      : `<p class="err">⚠️ Postarea a mers, dar comentariul cu linkul a EȘUAT: ${esc(String(r.posted.comment || "").slice(0, 200))}</p>
+         <p><small>De obicei lipsește permisiunea <b>pages_manage_engagement</b> — apasă „🔗 Conectează pagini cu Facebook" din dashboard și reconectează pagina (tokenul nou vine cu permisiunea corectă).</small></p>`;
+    body = `<p>✅ Postat: <b>${esc(r.posted.title)}</b> (${r.posted.photos} poze)</p>${c}
       <p><a href="https://www.facebook.com/${esc(r.posted.fbPostId)}" target="_blank">Vezi postarea pe Facebook →</a></p>`;
   } else if (r.skipped) {
     body = `<p>Sărit: ${esc(String(r.skipped))}</p>`;
