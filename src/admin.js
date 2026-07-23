@@ -130,7 +130,8 @@ admin.get("/", async (req, res) => {
 
   res.send(page("Dashboard", `
     <div class="topbar"><h1>📣 Social Bot — administrare</h1>
-      <span><a class="btn" href="/admin/sites/new">➕ Adaugă site</a> <a class="btn" href="/admin/logout">Ieși</a></span></div>
+      <span><a class="btn" href="/admin/fb/connect">🔗 Conectează pagini cu Facebook</a>
+      <a class="btn" href="/admin/sites/new">➕ Adaugă site</a> <a class="btn" href="/admin/logout">Ieși</a></span></div>
     <div class="card">
       <h2>Site-uri conectate</h2>
       <table><tr><th>Site</th><th>Feed</th><th>Pagina FB</th><th>Stare</th><th>Postări</th><th>Acțiuni</th></tr>${siteRows.join("")}</table>
@@ -187,6 +188,125 @@ admin.post("/sites/:slug/toggle", async (req, res) => {
 
 admin.post("/sites/:slug/delete", async (req, res) => {
   await deleteSite(req.params.slug);
+  res.redirect("/admin");
+});
+
+// ---------- conectare pagini prin Facebook Login (OAuth) ----------
+// Fluxul „fără dureri de cap": buton → login Facebook → bifezi paginile →
+// panoul primește singur Page ID + token de pagină (long-lived) și le salvează.
+
+const pendingPages = new Map(); // key -> { pages, exp } (ține 10 min)
+
+function fbConfigured() {
+  return !!(process.env.FB_APP_ID && process.env.FB_APP_SECRET);
+}
+
+function baseUrl(req) {
+  const proto = req.headers["x-forwarded-proto"] || "https";
+  const host = req.headers["x-forwarded-host"] || req.headers.host;
+  return process.env.APP_BASE_URL || `${proto}://${host}`;
+}
+
+function oauthState() {
+  return crypto.createHmac("sha256", process.env.CRON_SECRET || "no-secret").update("fb-oauth").digest("hex").slice(0, 32);
+}
+
+admin.get("/fb/connect", (req, res) => {
+  if (!fbConfigured()) {
+    return res.send(page("Conectare Facebook", `<div class="card"><h2>🔗 Conectare cu Facebook</h2>
+      <p>Ca butonul să meargă, setează în Railway două variabile din aplicația ta Facebook
+      (<b>developers.facebook.com</b> → aplicația ta → App settings → Basic):</p>
+      <pre>FB_APP_ID=App ID-ul aplicației
+FB_APP_SECRET=App Secret (apasă Show lângă el)</pre>
+      <p>Și în aplicația Facebook → <b>Facebook Login</b> (sau Facebook Login for Business) → <b>Settings</b> →
+      la <b>Valid OAuth Redirect URIs</b> adaugă:</p>
+      <pre>${esc(baseUrl(req))}/admin/fb/callback</pre>
+      <a class="btn" href="/admin">Înapoi</a></div>`));
+  }
+  const redirect = `${baseUrl(req)}/admin/fb/callback`;
+  const url =
+    `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(process.env.FB_APP_ID)}` +
+    `&redirect_uri=${encodeURIComponent(redirect)}&state=${oauthState()}` +
+    `&scope=${encodeURIComponent("pages_show_list,pages_manage_posts,pages_read_engagement")}`;
+  res.redirect(url);
+});
+
+admin.get("/fb/callback", async (req, res) => {
+  const back = `<a class="btn" href="/admin">Înapoi</a>`;
+  try {
+    if (req.query.error) throw new Error(req.query.error_description || req.query.error);
+    if (req.query.state !== oauthState()) throw new Error("state invalid — reia conectarea din panou");
+    const redirect = `${baseUrl(req)}/admin/fb/callback`;
+
+    // cod → user token
+    const r1 = await fetch(
+      `https://graph.facebook.com/v21.0/oauth/access_token?client_id=${encodeURIComponent(process.env.FB_APP_ID)}` +
+      `&redirect_uri=${encodeURIComponent(redirect)}&client_secret=${encodeURIComponent(process.env.FB_APP_SECRET)}` +
+      `&code=${encodeURIComponent(req.query.code || "")}`,
+      { signal: AbortSignal.timeout(15000) }
+    );
+    const t1 = await r1.json();
+    if (!t1.access_token) throw new Error(`schimb cod→token: ${JSON.stringify(t1.error || t1)}`);
+
+    // user token → long-lived (tokenurile de pagină derivate nu mai expiră)
+    const r2 = await fetch(
+      `https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_exchange_token` +
+      `&client_id=${encodeURIComponent(process.env.FB_APP_ID)}&client_secret=${encodeURIComponent(process.env.FB_APP_SECRET)}` +
+      `&fb_exchange_token=${encodeURIComponent(t1.access_token)}`,
+      { signal: AbortSignal.timeout(15000) }
+    );
+    const t2 = await r2.json();
+    const userToken = t2.access_token || t1.access_token;
+
+    // paginile pe care ești admin
+    const r3 = await fetch(
+      `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token&limit=100&access_token=${encodeURIComponent(userToken)}`,
+      { signal: AbortSignal.timeout(15000) }
+    );
+    const d3 = await r3.json();
+    const pages = d3.data || [];
+    if (pages.length === 0) {
+      return res.send(page("Conectare Facebook", `<div class="card"><h2>🔗 Conectare cu Facebook</h2>
+        <p class="err">Login reușit, dar nicio pagină primită. La pasul de login trebuie BIFATE paginile —
+        reia conectarea și bifează paginile când te întreabă.</p>
+        <p><small>Dacă nu te mai întreabă de pagini: Facebook → Settings → Business integrations → șterge aplicația → reia.</small></p>
+        <a class="btn" href="/admin/fb/connect">🔁 Reia conectarea</a> ${back}</div>`));
+    }
+
+    for (const [k, v] of pendingPages) if (v.exp < Date.now()) pendingPages.delete(k);
+    const key = crypto.randomBytes(8).toString("hex");
+    pendingPages.set(key, { pages, exp: Date.now() + 10 * 60 * 1000 });
+
+    const sites = await getSites();
+    const options = sites.map((s) => `<option value="${esc(s.slug)}">${esc(s.name)}</option>`).join("");
+    const rows = pages.map((p, i) => `<tr>
+      <td><b>${esc(p.name)}</b><br><small>ID ${esc(p.id)}</small></td>
+      <td><form method="post" action="/admin/fb/assign">
+        <input type="hidden" name="key" value="${key}"><input type="hidden" name="idx" value="${i}">
+        <select name="slug">${options}</select> <button>💾 Leagă de site</button>
+      </form></td>
+    </tr>`).join("");
+    res.send(page("Alege paginile", `<div class="card"><h2>✅ Facebook conectat — alege unde merge fiecare pagină</h2>
+      <p>Pentru fiecare pagină, alege site-ul de care se leagă și apasă „Leagă de site". Tokenurile se salvează automat.</p>
+      <table><tr><th>Pagina Facebook</th><th>Se leagă de</th></tr>${rows}</table>${back}</div>`));
+  } catch (e) {
+    res.send(page("Conectare Facebook", `<div class="card"><h2>🔗 Conectare cu Facebook</h2>
+      <p class="err">Eroare: ${esc(e.message)}</p><a class="btn" href="/admin/fb/connect">🔁 Reîncearcă</a> ${back}</div>`));
+  }
+});
+
+admin.post("/fb/assign", async (req, res) => {
+  const entry = pendingPages.get(req.body.key);
+  const p = entry?.pages?.[parseInt(req.body.idx, 10)];
+  const s = await getSite(req.body.slug);
+  if (!entry || entry.exp < Date.now() || !p || !s) {
+    return res.send(page("Eroare", `<div class="card"><p class="err">Sesiunea de conectare a expirat — reia din panou.</p>
+      <a class="btn" href="/admin/fb/connect">🔁 Reia conectarea</a></div>`));
+  }
+  await pool.query(
+    `UPDATE sites SET fb_page_id = $2, fb_access_token = $3, updated_at = NOW() WHERE slug = $1`,
+    [s.slug, p.id, p.access_token]
+  );
   res.redirect("/admin");
 });
 
