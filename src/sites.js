@@ -22,15 +22,18 @@ const DEFAULT_SITES = [
   },
 ];
 
-// Site-urile default lipsă se adaugă la fiecare pornire (ON CONFLICT DO
-// NOTHING — ce există deja în DB nu se atinge). Un site nou apare
-// neconfigurat și doar aștepți să-i pui tokenul din /admin.
+// Site-urile default lipsă se adaugă la fiecare pornire, iar câmpurile GOALE
+// din DB se completează din env (Railway) dacă env-ul are valoare. Ce e deja
+// setat în DB (din panoul de admin) NU se suprascrie — panoul are prioritate.
 export async function seedSitesFromEnv() {
   for (const s of DEFAULT_SITES) {
     await pool.query(
       `INSERT INTO sites (slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, active)
        VALUES ($1, $2, $3, $4, $5, $6, TRUE)
-       ON CONFLICT (slug) DO NOTHING`,
+       ON CONFLICT (slug) DO UPDATE SET
+         fb_page_id = CASE WHEN sites.fb_page_id = '' THEN EXCLUDED.fb_page_id ELSE sites.fb_page_id END,
+         fb_access_token = CASE WHEN sites.fb_access_token = '' THEN EXCLUDED.fb_access_token ELSE sites.fb_access_token END,
+         openai_api_key = CASE WHEN sites.openai_api_key = '' THEN EXCLUDED.openai_api_key ELSE sites.openai_api_key END`,
       [s.slug, s.name, s.feed_url, s.fb_page_id, s.fb_access_token, s.openai_api_key]
     );
   }
