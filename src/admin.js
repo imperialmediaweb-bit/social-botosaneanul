@@ -85,18 +85,21 @@ async function tokenStatus(site) {
 admin.get("/", async (req, res) => {
   const sites = await getSites();
   const statuses = await Promise.all(sites.map(tokenStatus));
+  // fb_post_id='baseline' = articole marcate ca văzute la prima activare,
+  // fără postare reală — nu apar în istoric
   const { rows: lastPosts } = await pool.query(
     `SELECT p.page_id, p.item_url, p.fb_post_id, p.posted_at, s.name AS site_name
      FROM external_fb_posts p
      LEFT JOIN sites s ON s.fb_page_id = p.page_id
-     WHERE p.fb_post_id IS NOT NULL
+     WHERE p.fb_post_id IS NOT NULL AND p.fb_post_id <> 'baseline'
      ORDER BY p.posted_at DESC LIMIT 20`
   );
 
   const siteRows = await Promise.all(sites.map(async (s, i) => {
     const { rows } = await pool.query(
       `SELECT MAX(posted_at) AS last, COUNT(*)::int AS n
-       FROM external_fb_posts WHERE page_id = $1 AND fb_post_id IS NOT NULL`,
+       FROM external_fb_posts
+       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id <> 'baseline'`,
       [s.fb_page_id || "-"]
     );
     const st = statuses[i];
