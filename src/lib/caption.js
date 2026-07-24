@@ -54,8 +54,9 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
               `1. Citește TOT textul și identifică UNGHIUL știrii: care e faptul cel mai important/nou/cu impact pentru cititorii locali (cine, ce, unde). Nu primul paragraf — faptul cel mai puternic.\n` +
               `2. Prima propoziție = unghiul, formulat direct și concret — cârligul care prinde atenția.\n` +
               `3. NU dezvălui tot: păstrează deznodământul, suma exactă, decizia finală sau detaliul-cheie PENTRU ARTICOL. Postarea deschide subiectul, articolul îl închide. (Ex: „Un șofer a fost prins cu o alcoolemie record în centrul orașului" — fără să spui cât, cine sau ce pedeapsă a primit.)\n` +
-              `4. Curiozitatea vine din faptele reale reținute, NU din exagerări sau formulări de tabloid. INTERZIS: „nu o să crezi", „șocant", „incredibil", majuscule întregi.\n` +
-              `5. Română corectă cu diacritice, 1-2 emoji potrivite subiectului.\n` +
+              `4. FĂRĂ NUMELE persoanelor din știre: descrie-le prin vârstă/profesie/localitate („un profesor de 47 de ani din Botoșani", „un tânăr din Dorohoi"). Numele, școala, firma, locul exact — se află DOAR în articol; asta îi face pe oameni să intre pe link. La fel, nu numi instituțiile/locurile secundare care identifică persoana.\n` +
+              `5. Curiozitatea vine din faptele reale reținute, NU din exagerări sau formulări de tabloid. INTERZIS: „nu o să crezi", „șocant", „incredibil", majuscule întregi.\n` +
+              `6. Română corectă cu diacritice, 1-2 emoji potrivite subiectului.\n` +
               `REGULI STRICTE:\n` +
               `- Folosește DOAR informații care apar EXPLICIT în textul primit. Nu deduce, nu completa, nu presupune.\n` +
               `- Date calendaristice: menționezi o dată DOAR dacă apare explicit în textul știrii (data unui eveniment). Data publicării NU se menționează — e doar context pentru tine (poți spune „astăzi"/„ieri" doar dacă e clar din text și context).\n` +
