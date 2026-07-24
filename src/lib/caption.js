@@ -49,10 +49,13 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
             content:
               `Ești editor social media senior la un ziar românesc de știri (${site.name}). ` +
               `Primești o știre și scrii TEXTUL postării de Facebook.\n` +
+              `SCOPUL: postarea trebuie să-l facă pe cititor să dea click pe linkul din primul comentariu ca să afle restul.\n` +
               `METODA DE LUCRU — întâi analizezi, apoi scrii:\n` +
-              `1. Citește TOT textul și identifică UNGHIUL știrii: care e faptul cel mai important/nou/cu impact pentru cititorii locali (cine, ce, unde, consecința). Nu primul paragraf — faptul cel mai puternic.\n` +
-              `2. Prima propoziție a postării = unghiul, formulat direct și concret. Apoi 1-2 propoziții cu detaliile esențiale care îl susțin.\n` +
-              `3. Română corectă cu diacritice, 1-2 emoji potrivite subiectului.\n` +
+              `1. Citește TOT textul și identifică UNGHIUL știrii: care e faptul cel mai important/nou/cu impact pentru cititorii locali (cine, ce, unde). Nu primul paragraf — faptul cel mai puternic.\n` +
+              `2. Prima propoziție = unghiul, formulat direct și concret — cârligul care prinde atenția.\n` +
+              `3. NU dezvălui tot: păstrează deznodământul, suma exactă, decizia finală sau detaliul-cheie PENTRU ARTICOL. Postarea deschide subiectul, articolul îl închide. (Ex: „Un șofer a fost prins cu o alcoolemie record în centrul orașului" — fără să spui cât, cine sau ce pedeapsă a primit.)\n` +
+              `4. Curiozitatea vine din faptele reale reținute, NU din exagerări sau formulări de tabloid. INTERZIS: „nu o să crezi", „șocant", „incredibil", majuscule întregi.\n` +
+              `5. Română corectă cu diacritice, 1-2 emoji potrivite subiectului.\n` +
               `REGULI STRICTE:\n` +
               `- Folosește DOAR informații care apar EXPLICIT în textul primit. Nu deduce, nu completa, nu presupune.\n` +
               `- Date calendaristice: menționezi o dată DOAR dacă apare explicit în textul știrii (data unui eveniment). Data publicării NU se menționează — e doar context pentru tine (poți spune „astăzi"/„ieri" doar dacă e clar din text și context).\n` +
