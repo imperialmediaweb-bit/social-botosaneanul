@@ -130,9 +130,12 @@ async function processSite(site, { force, dry }) {
     );
     if (claim.rowCount === 0) continue; // deja postat sau revendicat/în carantină
 
-    const gallery = await extractGallery(item.link, item.contentEncoded, item.mediaUrl);
+    const media = await extractGallery(item.link, item.contentEncoded, item.mediaUrl);
+    const gallery = media.images;
+    // textul REAL al articolului (de pe pagină) e sursa captionului; feed-ul
+    // e doar fallback — rezumatele sărace duc la halucinații AI
     const caption =
-      (await aiCaption(site, item.title, item.contentEncoded || item.description)) ||
+      (await aiCaption(site, item.title, media.text || item.contentEncoded || item.description)) ||
       fallbackCaption(item.title);
 
     if (dry) {

@@ -21,8 +21,12 @@ const IMG_EXT = /\.(jpe?g|png|webp|gif)(\?|$)/i;
 //        doar după titlul <h1>
 //     7. linkurile <a data-gallery=...> (lightbox-ul galeriilor)
 //     - NICIODATĂ fallback pe toată pagina.
+// Returnează { images, text }: pozele articolului + textul lui real (din
+// JSON-LD articleBody sau din containerul articolului) — textul alimentează
+// captionul AI, ca să nu halucineze pe rezumate sărace din feed.
 export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "") {
   const urls = [];
+  let articleText = "";
   let siteDomain = "";
   try {
     const parts = new URL(articleUrl).hostname.split(".");
@@ -108,14 +112,23 @@ export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "")
       if (og) pushTrusted(og[1]);
 
       // 4) JSON-LD: imaginile declarate ale articolului (nu author/logo)
-      for (const img of jsonLdArticleImages(html)) pushTrusted(img);
+      //    + textul integral al articolului (articleBody)
+      const ld = jsonLdArticleData(html);
+      for (const img of ld.images) pushTrusted(img);
+      if (ld.body) articleText = ld.body;
 
       // 5) containerele articolului (toate aparițiile, extrase balansat)
       const reBody = /<(?:div|section|article)[^>]+(?:itemprop=["']articleBody["']|class=["'][^"']*(?:entry-content|post-content|article-content|article-body|td-post-content|single-content|story-body|post-body|content-article|article-context)[^"']*["'])[^>]*>|<(?:div|section)[^>]+class=["'](?:[^"']*\s)?content(?:\s[^"']*)?["'][^>]*>|<article[\s>]/gi;
       let b;
       let containers = 0;
       while ((b = reBody.exec(html)) !== null && containers < 8) {
-        collectFromHtml(sliceBalanced(html, b.index), pushPage);
+        const slice = sliceBalanced(html, b.index);
+        collectFromHtml(slice, pushPage);
+        // fallback pentru text: cel mai lung container de articol găsit
+        if (!articleText) {
+          const t = stripToText(slice);
+          if (t.length > 200) articleText = t;
+        }
         containers++;
       }
 
@@ -144,7 +157,21 @@ export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "")
     /* rămânem cu ce avem din feed */
   }
 
-  return dedupeSizeVariants(urls).slice(0, 10); // limita album FB
+  return {
+    images: dedupeSizeVariants(urls).slice(0, 10), // limita album FB
+    text: articleText,
+  };
+}
+
+function stripToText(html) {
+  return decodeEntities(
+    (html || "")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+  )
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // Extrage elementul de la openIdx cu tot conținutul, numărând adâncimea
@@ -170,10 +197,11 @@ function sliceBalanced(html, openIdx) {
   return html.slice(openIdx, openIdx + 200000);
 }
 
-// Imaginile din blocurile JSON-LD schema.org, dar DOAR ale obiectelor de tip
-// Article/NewsArticle (image, thumbnailUrl) — nu author.image, nu logo.
-function jsonLdArticleImages(html) {
-  const out = [];
+// Din blocurile JSON-LD schema.org, DOAR de la obiectele de tip Article/
+// NewsArticle: imaginile (image, thumbnailUrl — nu author.image, nu logo)
+// și textul integral (articleBody).
+function jsonLdArticleData(html) {
+  const out = { images: [], body: "" };
   const reLd = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   let m;
   while ((m = reLd.exec(html)) !== null) {
@@ -189,9 +217,12 @@ function jsonLdArticleImages(html) {
           if (/Article/i.test(type)) {
             for (const val of [node.image, node.thumbnailUrl]) {
               for (const v of Array.isArray(val) ? val : [val]) {
-                if (typeof v === "string") out.push(v);
-                else if (v && typeof v === "object" && typeof v.url === "string") out.push(v.url);
+                if (typeof v === "string") out.images.push(v);
+                else if (v && typeof v === "object" && typeof v.url === "string") out.images.push(v.url);
               }
+            }
+            if (typeof node.articleBody === "string" && node.articleBody.length > out.body.length) {
+              out.body = node.articleBody.replace(/\s+/g, " ").trim();
             }
           }
           for (const k of ["@graph", "mainEntity", "itemListElement"]) {
