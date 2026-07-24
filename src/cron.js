@@ -6,7 +6,8 @@ import { aiCaption, fallbackCaption } from "./lib/caption.js";
 import { postToPage, postPhotoToPage, postAlbumToPage, commentOnPost } from "./lib/fb.js";
 
 const LOCK_NAME = "social-post";
-const THROTTLE_MINUTES = 15; // max 1 postare / 15 min / pagină
+// max 1 postare / N min / pagină (THROTTLE_MINUTES în env pentru alt ritm)
+const THROTTLE_MINUTES = parseInt(process.env.THROTTLE_MINUTES || "15", 10);
 const QUARANTINE_MINUTES = 20; // anti ghost-post: fără retry 20 min după orice tentativă
 const DRY_RUN_MAX_ITEMS = 5;
 // doar articole proaspete: mai vechi de atât (ore) nu se postează niciodată
