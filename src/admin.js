@@ -60,27 +60,35 @@ admin.use(express.urlencoded({ extended: false }));
 
 admin.use((req, res, next) => {
   if (!process.env.ADMIN_PASSWORD) {
-    return res.status(503).send(page("Admin dezactivat", `<p>Setează variabila de mediu <code>ADMIN_PASSWORD</code> în Railway ca să activezi panoul.</p>`));
+    return res.status(503).send(page("Admin dezactivat", `<div class="card"><h2>Panou dezactivat</h2>
+      <p>Setează variabila de mediu <code>ADMIN_PASSWORD</code> în Railway ca să activezi panoul.</p></div>`));
   }
   if (req.path === "/login") return next();
   if (!isAuthed(req)) return res.redirect("/admin/login");
   next();
 });
 
-admin.get("/login", (req, res) => {
-  res.send(page("Login", `
-    <form method="post" action="/admin/login" class="card">
-      <h2>🔐 Panou de administrare</h2>
-      <label>Parola</label>
-      <input type="password" name="password" autofocus>
-      <button type="submit">Intră</button>
-    </form>`));
-});
+function loginPage(error = "") {
+  return page("Autentificare", `
+    <div class="login-wrap">
+      <form method="post" action="/admin/login" class="card login-card">
+        <div class="login-logo">📣</div>
+        <h1 class="login-title">Social Bot</h1>
+        <p class="login-sub">Panoul de administrare</p>
+        ${error ? `<div class="alert err">${error}</div>` : ""}
+        <label>Parola</label>
+        <input type="password" name="password" autofocus autocomplete="current-password">
+        <button type="submit" class="btn primary w100">Intră în panou</button>
+      </form>
+    </div>`, { bare: true });
+}
+
+admin.get("/login", (req, res) => res.send(loginPage()));
 
 admin.post("/login", (req, res) => {
   const ip = clientIp(req);
   if (tooManyAttempts(ip)) {
-    return res.status(429).send(page("Login", `<div class="card"><p class="err">Prea multe încercări. Așteaptă 15 minute.</p></div>`));
+    return res.status(429).send(loginPage("Prea multe încercări. Așteaptă 15 minute."));
   }
   if (safeEqual(req.body.password, process.env.ADMIN_PASSWORD)) {
     loginAttempts.delete(ip);
@@ -88,11 +96,7 @@ admin.post("/login", (req, res) => {
     return res.redirect("/admin");
   }
   recordFailedLogin(ip);
-  res.send(page("Login", `<form method="post" action="/admin/login" class="card">
-    <h2>🔐 Panou de administrare</h2>
-    <p class="err">Parolă greșită.</p>
-    <label>Parola</label><input type="password" name="password" autofocus>
-    <button type="submit">Intră</button></form>`));
+  res.send(loginPage("Parolă greșită."));
 });
 
 admin.get("/logout", (req, res) => {
@@ -100,150 +104,13 @@ admin.get("/logout", (req, res) => {
   res.redirect("/admin/login");
 });
 
-// ---------- dashboard ----------
-
-// Starea tokenului, verificată live la încărcarea dashboardului (timeout
-// scurt ca pagina să nu atârne dacă Graph API e lent).
-async function tokenStatus(site) {
-  if (!site.fb_page_id || !site.fb_access_token) return { state: "unconfigured" };
-  try {
-    const r = await fetch(
-      `https://graph.facebook.com/v21.0/${encodeURIComponent(site.fb_page_id)}?fields=id,name&access_token=${encodeURIComponent(site.fb_access_token)}`,
-      { signal: AbortSignal.timeout(6000), cache: "no-store" }
-    );
-    const data = await r.json();
-    if (data.error) return { state: "invalid", message: data.error.message || "token invalid" };
-    return { state: "ok", pageName: data.name };
-  } catch {
-    return { state: "unknown" };
-  }
-}
-
-admin.get("/", async (req, res) => {
-  const sites = await getSites();
-  const statuses = await Promise.all(sites.map(tokenStatus));
-  // fb_post_id='baseline' = articole marcate ca văzute la prima activare,
-  // fără postare reală — nu apar în istoric
-  const { rows: lastPosts } = await pool.query(
-    `SELECT p.page_id, p.item_url, p.fb_post_id, p.posted_at, s.name AS site_name
-     FROM external_fb_posts p
-     LEFT JOIN sites s ON s.fb_page_id = p.page_id
-     WHERE p.fb_post_id IS NOT NULL AND p.fb_post_id NOT IN ('baseline', 'filtered')
-     ORDER BY p.posted_at DESC LIMIT 20`
-  );
-
-  const siteRows = await Promise.all(sites.map(async (s, i) => {
-    const { rows } = await pool.query(
-      `SELECT MAX(posted_at) AS last, COUNT(*)::int AS n
-       FROM external_fb_posts
-       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')`,
-      [s.fb_page_id || "-"]
-    );
-    const st = statuses[i];
-    const tokenCell =
-      st.state === "ok" ? `✅ <b>${esc(st.pageName)}</b><br><small>${esc(s.fb_page_id)}</small>` :
-      st.state === "invalid" ? `❌ <span class="err">TOKEN MORT</span><br><small>${esc(st.message.slice(0, 90))}</small><br><small>→ regenerează tokenul și pune-l la ✏️ Editează</small>` :
-      st.state === "unconfigured" ? `⚠️ neconfigurat` :
-      `❓ ${esc(s.fb_page_id)} <small>(Graph API n-a răspuns)</small>`;
-    return `<tr>
-      <td><b>${esc(s.name)}</b><br><small>${esc(s.slug)}</small></td>
-      <td><small>${esc(s.feed_url)}</small></td>
-      <td>${tokenCell}</td>
-      <td>${s.active ? "🟢 activ" : "⏸️ oprit"}</td>
-      <td><small>${rows[0].n} postări${rows[0].last ? `<br>ultima: ${fmtDate(rows[0].last)}` : ""}</small></td>
-      <td class="actions">
-        <a class="btn" href="/admin/sites/${esc(s.slug)}/edit">✏️ Editează</a>
-        <form method="post" action="/admin/sites/${esc(s.slug)}/check"><button>🔎 Verifică token</button></form>
-        <form method="post" action="/admin/sites/${esc(s.slug)}/dry-run"><button>🧪 Dry-run</button></form>
-        <form method="post" action="/admin/sites/${esc(s.slug)}/run-now" onsubmit="return confirm('Postează ACUM pe Facebook primul articol nepostat. Continui?')"><button class="warn">🚀 Postează acum</button></form>
-        <form method="post" action="/admin/sites/${esc(s.slug)}/toggle"><button>${s.active ? "⏸️ Oprește" : "▶️ Pornește"}</button></form>
-      </td>
-    </tr>`;
-  }));
-
-  const postRows = lastPosts.map((p) => `<tr>
-    <td><small>${fmtDate(p.posted_at)}</small></td>
-    <td>${esc(p.site_name || p.page_id)}</td>
-    <td><a href="${esc(p.item_url)}" target="_blank"><small>${esc(p.item_url.slice(0, 80))}</small></a></td>
-    <td>${p.fb_post_id ? `<a href="https://www.facebook.com/${esc(p.fb_post_id)}" target="_blank">vezi pe FB</a>` : "-"}</td>
-  </tr>`).join("");
-
-  res.send(page("Dashboard", `
-    <div class="topbar"><h1>📣 Social Bot — administrare</h1>
-      <span><a class="btn" href="/admin/fb/connect">🔗 Conectează pagini cu Facebook</a>
-      <a class="btn" href="/admin/sites/new">➕ Adaugă site</a> <a class="btn" href="/admin/logout">Ieși</a></span></div>
-    <div class="card">
-      <h2>Site-uri conectate</h2>
-      <table><tr><th>Site</th><th>Feed</th><th>Pagina FB</th><th>Stare</th><th>Postări</th><th>Acțiuni</th></tr>${siteRows.join("")}</table>
-      ${sites.length === 0 ? "<p>Niciun site. Adaugă unul cu butonul de sus.</p>" : ""}
-    </div>
-    <div class="card">
-      <h2>Ultimele postări</h2>
-      <table><tr><th>Data</th><th>Site</th><th>Articol</th><th>Facebook</th></tr>${postRows || "<tr><td colspan=4>Nimic încă.</td></tr>"}</table>
-    </div>`));
-});
-
-// ---------- adăugare / editare site ----------
-
-function siteForm(s = {}, isNew = true) {
-  return `<form method="post" action="/admin/sites" class="card">
-    <h2>${isNew ? "➕ Adaugă site" : `✏️ ${esc(s.name || s.slug)}`}</h2>
-    <label>Slug (identificator, fără spații)</label>
-    <input name="slug" value="${esc(s.slug || "")}" ${isNew ? "" : "readonly"} required pattern="[a-z0-9-]+">
-    <label>Nume afișat</label>
-    <input name="name" value="${esc(s.name || "")}" required>
-    <label>Feed URL (RSS sau Atom)</label>
-    <input name="feed_url" value="${esc(s.feed_url || "")}" required type="url">
-    <label>Facebook Page ID</label>
-    <input name="fb_page_id" value="${esc(s.fb_page_id || "")}">
-    <label>Facebook Page Access Token ${isNew ? "" : "<small>(gol = păstrează tokenul actual)</small>"}</label>
-    <input name="fb_access_token" value="" placeholder="${s.fb_access_token ? "•••• setat — scrie doar dacă vrei să-l schimbi" : "EAAB..."}">
-    <label>Cheie OpenAI dedicată <small>(opțional; gol = folosește cheia globală${isNew ? "" : ", sau păstrează cheia actuală"})</small></label>
-    <input name="openai_api_key" value="" placeholder="${s.openai_api_key ? "•••• setată" : "sk-... (opțional)"}">
-    <label>Excludere articole <small>(opțional; cuvânt sau regex — articolele care îl conțin în titlu/text/sursă NU se postează; ex: <b>hotnews</b>)</small></label>
-    <input name="exclude_pattern" value="${esc(s.exclude_pattern || "")}" placeholder="ex: hotnews">
-    <button type="submit">💾 Salvează</button> <a class="btn" href="/admin">Renunță</a>
-    ${isNew ? "" : `</form><form method="post" action="/admin/sites/${esc(s.slug)}/delete" onsubmit="return confirm('Ștergi site-ul ${esc(s.slug)}? Istoricul postărilor rămâne (dedup intact).')" class="card"><button class="danger">🗑️ Șterge site-ul</button>`}
-  </form>`;
-}
-
-admin.get("/sites/new", (req, res) => res.send(page("Adaugă site", siteForm({}, true))));
-
-admin.get("/sites/:slug/edit", async (req, res) => {
-  const s = await getSite(req.params.slug);
-  if (!s) return res.redirect("/admin");
-  res.send(page("Editează", siteForm(s, false)));
-});
-
-admin.post("/sites", async (req, res) => {
-  const { slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern } = req.body;
-  if (!/^[a-z0-9-]+$/.test(slug || "")) return res.status(400).send(page("Eroare", `<p class="err">Slug invalid.</p><a class="btn" href="/admin">Înapoi</a>`));
-  await upsertSite({ slug, name, feed_url, fb_page_id: (fb_page_id || "").trim(), fb_access_token: (fb_access_token || "").trim(), openai_api_key: (openai_api_key || "").trim(), exclude_pattern: (exclude_pattern || "").trim() });
-  res.redirect("/admin");
-});
-
-admin.post("/sites/:slug/toggle", async (req, res) => {
-  const s = await getSite(req.params.slug);
-  if (s) await setSiteActive(s.slug, !s.active);
-  res.redirect("/admin");
-});
-
-admin.post("/sites/:slug/delete", async (req, res) => {
-  await deleteSite(req.params.slug);
-  res.redirect("/admin");
-});
-
 // ---------- conectare pagini prin Facebook Login (OAuth) ----------
-// Fluxul „fără dureri de cap": buton → login Facebook → bifezi paginile →
-// panoul primește singur Page ID + token de pagină (long-lived) și le salvează.
 
 const pendingPages = new Map(); // key -> { pages, exp } (ține 10 min)
 
 // Toate permisiunile de pagină utile: postări + poze/albume, Reels și
-// Stories (pages_manage_posts le acoperă pe toate trei), comentarii ca
-// pagină (pages_manage_engagement), citirea comentariilor vizitatorilor
-// (pages_read_user_content), metadate, statistici (read_insights) și
-// paginile deținute prin Business Manager (business_management).
+// Stories (pages_manage_posts le acoperă), comentarii ca pagină, citirea
+// comentariilor, metadate, statistici și paginile din Business Manager.
 const FB_SCOPES = [
   "pages_show_list",
   "pages_manage_posts",
@@ -276,10 +143,10 @@ admin.get("/fb/connect", (req, res) => {
       (<b>developers.facebook.com</b> → aplicația ta → App settings → Basic):</p>
       <pre>FB_APP_ID=App ID-ul aplicației
 FB_APP_SECRET=App Secret (apasă Show lângă el)</pre>
-      <p>Și în aplicația Facebook → <b>Facebook Login</b> (sau Facebook Login for Business) → <b>Settings</b> →
+      <p>Și în aplicația Facebook → <b>Facebook Login</b> → <b>Settings</b> →
       la <b>Valid OAuth Redirect URIs</b> adaugă:</p>
       <pre>${esc(baseUrl(req))}/admin/fb/callback</pre>
-      <a class="btn" href="/admin">Înapoi</a></div>`));
+      <a class="btn" href="/admin">← Înapoi</a></div>`));
   }
   const redirect = `${baseUrl(req)}/admin/fb/callback`;
   const url =
@@ -290,7 +157,7 @@ FB_APP_SECRET=App Secret (apasă Show lângă el)</pre>
 });
 
 admin.get("/fb/callback", async (req, res) => {
-  const back = `<a class="btn" href="/admin">Înapoi</a>`;
+  const back = `<a class="btn" href="/admin">← Înapoi</a>`;
   try {
     if (req.query.error) throw new Error(req.query.error_description || req.query.error);
     if (req.query.state !== oauthState()) throw new Error("state invalid — reia conectarea din panou");
@@ -325,10 +192,10 @@ admin.get("/fb/callback", async (req, res) => {
     const pages = d3.data || [];
     if (pages.length === 0) {
       return res.send(page("Conectare Facebook", `<div class="card"><h2>🔗 Conectare cu Facebook</h2>
-        <p class="err">Login reușit, dar nicio pagină primită. La pasul de login trebuie BIFATE paginile —
-        reia conectarea și bifează paginile când te întreabă.</p>
-        <p><small>Dacă nu te mai întreabă de pagini: Facebook → Settings → Business integrations → șterge aplicația → reia.</small></p>
-        <a class="btn" href="/admin/fb/connect">🔁 Reia conectarea</a> ${back}</div>`));
+        <div class="alert err">Login reușit, dar nicio pagină primită. La pasul de login trebuie BIFATE paginile —
+        reia conectarea și bifează paginile când te întreabă.</div>
+        <p class="muted">Dacă nu te mai întreabă de pagini: Facebook → Settings → Business integrations → șterge aplicația → reia.</p>
+        <a class="btn primary" href="/admin/fb/connect">🔁 Reia conectarea</a> ${back}</div>`));
     }
 
     for (const [k, v] of pendingPages) if (v.exp < Date.now()) pendingPages.delete(k);
@@ -338,18 +205,19 @@ admin.get("/fb/callback", async (req, res) => {
     const sites = await getSites();
     const options = sites.map((s) => `<option value="${esc(s.slug)}">${esc(s.name)}</option>`).join("");
     const rows = pages.map((p, i) => `<tr>
-      <td><b>${esc(p.name)}</b><br><small>ID ${esc(p.id)}</small></td>
-      <td><form method="post" action="/admin/fb/assign">
+      <td><b>${esc(p.name)}</b><br><span class="muted">ID ${esc(p.id)}</span></td>
+      <td><form method="post" action="/admin/fb/assign" class="inline-form">
         <input type="hidden" name="key" value="${key}"><input type="hidden" name="idx" value="${i}">
-        <select name="slug">${options}</select> <button>💾 Leagă de site</button>
+        <select name="slug">${options}</select> <button class="btn primary sm">💾 Leagă de site</button>
       </form></td>
     </tr>`).join("");
-    res.send(page("Alege paginile", `<div class="card"><h2>✅ Facebook conectat — alege unde merge fiecare pagină</h2>
-      <p>Pentru fiecare pagină, alege site-ul de care se leagă și apasă „Leagă de site". Tokenurile se salvează automat.</p>
+    res.send(page("Alege paginile", `<div class="card"><h2>✅ Facebook conectat — leagă paginile de site-uri</h2>
+      <p class="muted">Pentru fiecare pagină, alege site-ul de care se leagă. Tokenurile se salvează automat.</p>
       <table><tr><th>Pagina Facebook</th><th>Se leagă de</th></tr>${rows}</table>${back}</div>`));
   } catch (e) {
     res.send(page("Conectare Facebook", `<div class="card"><h2>🔗 Conectare cu Facebook</h2>
-      <p class="err">Eroare: ${esc(e.message)}</p><a class="btn" href="/admin/fb/connect">🔁 Reîncearcă</a> ${back}</div>`));
+      <div class="alert err">Eroare: ${esc(e.message)}</div>
+      <a class="btn primary" href="/admin/fb/connect">🔁 Reîncearcă</a> ${back}</div>`));
   }
 });
 
@@ -358,13 +226,198 @@ admin.post("/fb/assign", async (req, res) => {
   const p = entry?.pages?.[parseInt(req.body.idx, 10)];
   const s = await getSite(req.body.slug);
   if (!entry || entry.exp < Date.now() || !p || !s) {
-    return res.send(page("Eroare", `<div class="card"><p class="err">Sesiunea de conectare a expirat — reia din panou.</p>
-      <a class="btn" href="/admin/fb/connect">🔁 Reia conectarea</a></div>`));
+    return res.send(page("Eroare", `<div class="card"><div class="alert err">Sesiunea de conectare a expirat — reia din panou.</div>
+      <a class="btn primary" href="/admin/fb/connect">🔁 Reia conectarea</a></div>`));
   }
   await pool.query(
     `UPDATE sites SET fb_page_id = $2, fb_access_token = $3, updated_at = NOW() WHERE slug = $1`,
     [s.slug, p.id, p.access_token]
   );
+  res.redirect("/admin");
+});
+
+// ---------- dashboard ----------
+
+// Starea tokenului, verificată live la încărcarea dashboardului (timeout
+// scurt ca pagina să nu atârne dacă Graph API e lent).
+async function tokenStatus(site) {
+  if (!site.fb_page_id || !site.fb_access_token) return { state: "unconfigured" };
+  try {
+    const r = await fetch(
+      `https://graph.facebook.com/v21.0/${encodeURIComponent(site.fb_page_id)}?fields=id,name&access_token=${encodeURIComponent(site.fb_access_token)}`,
+      { signal: AbortSignal.timeout(6000), cache: "no-store" }
+    );
+    const data = await r.json();
+    if (data.error) return { state: "invalid", message: data.error.message || "token invalid" };
+    return { state: "ok", pageName: data.name };
+  } catch {
+    return { state: "unknown" };
+  }
+}
+
+// titlu lizibil din slug-ul URL-ului articolului
+function prettyTitle(url) {
+  try {
+    const seg = new URL(url).pathname.split("/").filter(Boolean).pop() || url;
+    const t = seg.replace(/[-_]+/g, " ").trim();
+    return (t.charAt(0).toUpperCase() + t.slice(1)).slice(0, 95);
+  } catch {
+    return url.slice(0, 95);
+  }
+}
+
+admin.get("/", async (req, res) => {
+  const sites = await getSites();
+  const statuses = await Promise.all(sites.map(tokenStatus));
+
+  // fb_post_id='baseline'/'filtered' = marcaje interne, nu postări reale
+  const { rows: lastPosts } = await pool.query(
+    `SELECT p.page_id, p.item_url, p.fb_post_id, p.posted_at, s.name AS site_name
+     FROM external_fb_posts p
+     LEFT JOIN sites s ON s.fb_page_id = p.page_id
+     WHERE p.fb_post_id IS NOT NULL AND p.fb_post_id NOT IN ('baseline', 'filtered')
+     ORDER BY p.posted_at DESC LIMIT 20`
+  );
+
+  const siteCards = await Promise.all(sites.map(async (s, i) => {
+    const { rows } = await pool.query(
+      `SELECT MAX(posted_at) AS last, COUNT(*)::int AS n
+       FROM external_fb_posts
+       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')`,
+      [s.fb_page_id || "-"]
+    );
+    const st = statuses[i];
+    const tokenBadge =
+      st.state === "ok" ? `<span class="badge ok">✓ Conectat: ${esc(st.pageName)}</span>` :
+      st.state === "invalid" ? `<span class="badge err">✕ Token mort</span>` :
+      st.state === "unconfigured" ? `<span class="badge warn">⚠ Neconectat</span>` :
+      `<span class="badge off">? Graph API indisponibil</span>`;
+    const stateBadge = s.active
+      ? `<span class="badge ok"><span class="dot"></span> Activ</span>`
+      : `<span class="badge off"><span class="dot gray"></span> Pe pauză</span>`;
+    const tokenAlert = st.state === "invalid"
+      ? `<div class="alert err">Tokenul paginii a murit: ${esc((st.message || "").slice(0, 120))}<br>
+         <small>Apasă „Conectează cu Facebook" din bara de sus și releagă pagina — se rezolvă în 30 de secunde.</small></div>`
+      : "";
+    return `<div class="card site">
+      <div class="site-head">
+        <span class="site-name">${esc(s.name)}</span>
+        ${stateBadge} ${tokenBadge}
+      </div>
+      <div class="site-meta">
+        <span title="Feed">📡 ${esc(s.feed_url)}</span>
+        <span title="Postări publicate">📊 ${rows[0].n} postări</span>
+        ${rows[0].last ? `<span title="Ultima postare">🕒 ultima: ${fmtDate(rows[0].last)}</span>` : ""}
+        ${s.exclude_pattern ? `<span title="Filtru de excludere">🚫 exclude: <b>${esc(s.exclude_pattern)}</b></span>` : ""}
+      </div>
+      ${tokenAlert}
+      <div class="site-actions">
+        <form method="post" action="/admin/sites/${esc(s.slug)}/dry-run"><button class="btn">🧪 Test fără postare</button></form>
+        <form method="post" action="/admin/sites/${esc(s.slug)}/run-now" onsubmit="return confirm('Postează ACUM pe Facebook primul articol nepostat de la ${esc(s.name)}. Continui?')"><button class="btn warn">🚀 Postează acum</button></form>
+        <span class="flex-spacer"></span>
+        <a class="btn sm" href="/admin/sites/${esc(s.slug)}/edit">⚙️ Setări</a>
+        <form method="post" action="/admin/sites/${esc(s.slug)}/check"><button class="btn sm">🔍 Verifică token</button></form>
+        <form method="post" action="/admin/sites/${esc(s.slug)}/toggle"><button class="btn sm">${s.active ? "⏸ Pune pe pauză" : "▶ Pornește"}</button></form>
+      </div>
+    </div>`;
+  }));
+
+  const postRows = lastPosts.map((p) => `<tr>
+    <td class="nowrap muted">${fmtDate(p.posted_at)}</td>
+    <td class="nowrap">${esc(p.site_name || p.page_id)}</td>
+    <td><a href="${esc(p.item_url)}" target="_blank" class="post-link">${esc(prettyTitle(p.item_url))}</a></td>
+    <td class="nowrap"><a class="btn sm" href="https://www.facebook.com/${esc(p.fb_post_id)}" target="_blank">Vezi pe FB ↗</a></td>
+  </tr>`).join("");
+
+  res.send(page("Dashboard", `
+    ${siteCards.join("")}
+    ${sites.length === 0 ? `<div class="card empty">🌱 Niciun site încă. Adaugă unul cu butonul „Adaugă site" de sus.</div>` : ""}
+    <div class="card">
+      <h2>🕘 Ultimele postări</h2>
+      ${postRows
+        ? `<div class="table-scroll"><table><tr><th>Data</th><th>Site</th><th>Articol</th><th></th></tr>${postRows}</table></div>`
+        : `<div class="empty">Nicio postare încă. Primul articol nou publicat pe site va apărea aici automat. 🚀</div>`}
+    </div>`));
+});
+
+// ---------- adăugare / editare site ----------
+
+function siteForm(s = {}, isNew = true) {
+  return `<div class="card form-card">
+    <h2>${isNew ? "➕ Adaugă site" : `⚙️ Setări — ${esc(s.name || s.slug)}`}</h2>
+    <form method="post" action="/admin/sites">
+      <div class="form-grid">
+        <div>
+          <label>Slug <small>(identificator, fără spații)</small></label>
+          <input name="slug" value="${esc(s.slug || "")}" ${isNew ? "" : "readonly"} required pattern="[a-z0-9-]+" placeholder="ex: botosaneanul">
+        </div>
+        <div>
+          <label>Nume afișat</label>
+          <input name="name" value="${esc(s.name || "")}" required placeholder="ex: Botoșăneanul">
+        </div>
+      </div>
+      <label>Feed URL <small>(RSS sau Atom)</small></label>
+      <input name="feed_url" value="${esc(s.feed_url || "")}" required type="url" placeholder="https://...">
+      <div class="form-grid">
+        <div>
+          <label>Facebook Page ID</label>
+          <input name="fb_page_id" value="${esc(s.fb_page_id || "")}" placeholder="ID-ul numeric al paginii">
+        </div>
+        <div>
+          <label>Page Access Token ${isNew ? "" : "<small>(gol = păstrează tokenul actual)</small>"}</label>
+          <input name="fb_access_token" value="" placeholder="${s.fb_access_token ? "•••• setat — scrie doar ca să-l schimbi" : "EAAB... (sau folosește Conectează cu Facebook)"}">
+        </div>
+      </div>
+      <label>Cheie OpenAI dedicată <small>(opțional; gol = cheia globală${isNew ? "" : ", sau păstrează cheia actuală"})</small></label>
+      <input name="openai_api_key" value="" placeholder="${s.openai_api_key ? "•••• setată" : "sk-... (opțional)"}">
+      <label>Excludere articole <small>(cuvânt sau regex; articolele care îl conțin în titlu/text/sursă NU se postează — ex: <b>hotnews</b>)</small></label>
+      <input name="exclude_pattern" value="${esc(s.exclude_pattern || "")}" placeholder="ex: hotnews">
+      <div class="form-actions">
+        <button type="submit" class="btn primary">💾 Salvează</button>
+        <a class="btn" href="/admin">Renunță</a>
+      </div>
+    </form>
+  </div>
+  ${isNew ? "" : `<div class="card danger-zone">
+    <h2>🗑️ Zonă periculoasă</h2>
+    <p class="muted">Ștergerea scoate site-ul din panou. Istoricul postărilor rămâne (protecția anti-dublare e intactă).</p>
+    <form method="post" action="/admin/sites/${esc(s.slug)}/delete" onsubmit="return confirm('Ștergi site-ul ${esc(s.slug)}?')">
+      <button class="btn danger">Șterge site-ul</button>
+    </form>
+  </div>`}`;
+}
+
+admin.get("/sites/new", (req, res) => res.send(page("Adaugă site", siteForm({}, true))));
+
+admin.get("/sites/:slug/edit", async (req, res) => {
+  const s = await getSite(req.params.slug);
+  if (!s) return res.redirect("/admin");
+  res.send(page("Setări", siteForm(s, false)));
+});
+
+admin.post("/sites", async (req, res) => {
+  const { slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern } = req.body;
+  if (!/^[a-z0-9-]+$/.test(slug || "")) {
+    return res.status(400).send(page("Eroare", `<div class="card"><div class="alert err">Slug invalid.</div><a class="btn" href="/admin">← Înapoi</a></div>`));
+  }
+  await upsertSite({
+    slug, name, feed_url,
+    fb_page_id: (fb_page_id || "").trim(),
+    fb_access_token: (fb_access_token || "").trim(),
+    openai_api_key: (openai_api_key || "").trim(),
+    exclude_pattern: (exclude_pattern || "").trim(),
+  });
+  res.redirect("/admin");
+});
+
+admin.post("/sites/:slug/toggle", async (req, res) => {
+  const s = await getSite(req.params.slug);
+  if (s) await setSiteActive(s.slug, !s.active);
+  res.redirect("/admin");
+});
+
+admin.post("/sites/:slug/delete", async (req, res) => {
+  await deleteSite(req.params.slug);
   res.redirect("/admin");
 });
 
@@ -374,8 +427,8 @@ admin.post("/sites/:slug/check", async (req, res) => {
   const s = await getSite(req.params.slug);
   if (!s) return res.redirect("/admin");
   if (!s.fb_page_id || !s.fb_access_token) {
-    return res.send(page("Verificare token", `<div class="card"><h2>🔎 ${esc(s.name)}</h2>
-      <p class="err">Page ID sau token lipsă — completează-le întâi.</p><a class="btn" href="/admin">Înapoi</a></div>`));
+    return res.send(page("Verificare token", `<div class="card"><h2>🔍 ${esc(s.name)}</h2>
+      <div class="alert err">Page ID sau token lipsă — conectează pagina întâi.</div><a class="btn" href="/admin">← Înapoi</a></div>`));
   }
   let body;
   try {
@@ -385,13 +438,13 @@ admin.post("/sites/:slug/check", async (req, res) => {
     );
     const data = await r.json();
     body = data.error
-      ? `<p class="err">❌ Token INVALID: ${esc(data.error.message || JSON.stringify(data.error))}</p>
-         <p><small>Dacă zice „session invalidated / changed password" → regenerează tokenul de pagină din Graph API Explorer.</small></p>`
-      : `<p>✅ Token valid pentru pagina <b>${esc(data.name)}</b> (ID ${esc(data.id)}).</p>`;
+      ? `<div class="alert err">✕ Token INVALID: ${esc(data.error.message || JSON.stringify(data.error))}</div>
+         <p class="muted">Dacă zice „session invalidated / changed password" → apasă „Conectează cu Facebook" din dashboard și releagă pagina.</p>`
+      : `<div class="alert ok">✓ Token valid pentru pagina <b>${esc(data.name)}</b> (ID ${esc(data.id)}).</div>`;
   } catch (e) {
-    body = `<p class="err">Eroare de rețea: ${esc(e.message)}</p>`;
+    body = `<div class="alert err">Eroare de rețea: ${esc(e.message)}</div>`;
   }
-  res.send(page("Verificare token", `<div class="card"><h2>🔎 ${esc(s.name)}</h2>${body}<a class="btn" href="/admin">Înapoi</a></div>`));
+  res.send(page("Verificare token", `<div class="card"><h2>🔍 ${esc(s.name)}</h2>${body}<a class="btn" href="/admin">← Înapoi</a></div>`));
 });
 
 // ---------- dry-run și postare manuală ----------
@@ -402,17 +455,18 @@ admin.post("/sites/:slug/dry-run", async (req, res) => {
   const would = (r.wouldPost || []).map((w) => `
     <div class="post">
       <h3>${esc(w.title)}</h3>
-      <p><a href="${esc(w.link)}" target="_blank">${esc(w.link)}</a></p>
+      <p><a href="${esc(w.link)}" target="_blank" class="post-link">${esc(w.link)}</a></p>
       <pre>${esc(w.caption)}</pre>
-      <p><b>${w.gallery.length} poze:</b></p>
+      <p><b>${w.gallery.length} ${w.gallery.length === 1 ? "poză" : "poze"}:</b></p>
       <div class="thumbs">${w.gallery.map((g) => `<a href="${esc(g)}" target="_blank"><img src="${esc(g)}" loading="lazy"></a>`).join("")}</div>
     </div>`).join("");
-  res.send(page("Dry-run", `<div class="card">
-    <h2>🧪 Dry-run — nimic nu a fost postat</h2>
-    ${r.skipped ? `<p>Sărit: ${esc(String(r.skipped))}</p>` : ""}
-    ${r.error ? `<p class="err">${esc(String(r.error))}</p>` : ""}
-    ${would || (!r.skipped && !r.error ? "<p>Niciun articol nou de postat.</p>" : "")}
-    <a class="btn" href="/admin">Înapoi</a></div>`));
+  res.send(page("Test fără postare", `<div class="card">
+    <h2>🧪 Test — nimic nu a fost postat</h2>
+    <p class="muted">Așa AR arăta următoarele postări (caption + poze), fără să fi publicat nimic.</p>
+    ${r.skipped ? `<div class="alert warn">Sărit: ${esc(String(r.skipped))}</div>` : ""}
+    ${r.error ? `<div class="alert err">${esc(String(r.error))}</div>` : ""}
+    ${would || (!r.skipped && !r.error ? `<div class="empty">Niciun articol nou de postat. ✔</div>` : "")}
+    <a class="btn" href="/admin">← Înapoi</a></div>`));
 });
 
 admin.post("/sites/:slug/run-now", async (req, res) => {
@@ -421,19 +475,20 @@ admin.post("/sites/:slug/run-now", async (req, res) => {
   let body;
   if (r.posted) {
     const c = r.posted.comment === "ok"
-      ? `<p>💬 Linkul articolului a fost pus în primul comentariu.</p>`
-      : `<p class="err">⚠️ Postarea a mers, dar comentariul cu linkul a EȘUAT: ${esc(String(r.posted.comment || "").slice(0, 200))}</p>
-         <p><small>De obicei lipsește permisiunea <b>pages_manage_engagement</b> — apasă „🔗 Conectează pagini cu Facebook" din dashboard și reconectează pagina (tokenul nou vine cu permisiunea corectă).</small></p>`;
-    body = `<p>✅ Postat: <b>${esc(r.posted.title)}</b> (${r.posted.photos} poze)</p>${c}
-      <p><a href="https://www.facebook.com/${esc(r.posted.fbPostId)}" target="_blank">Vezi postarea pe Facebook →</a></p>`;
+      ? `<div class="alert ok">💬 Linkul articolului a fost pus în primul comentariu.</div>`
+      : `<div class="alert err">⚠ Postarea a mers, dar comentariul cu linkul a EȘUAT: ${esc(String(r.posted.comment || "").slice(0, 200))}
+         <br><small>De obicei lipsește permisiunea de comentarii — apasă „Conectează cu Facebook" și releagă pagina.</small></div>`;
+    body = `<div class="alert ok">✓ Postat: <b>${esc(r.posted.title)}</b> (${r.posted.photos} poze)</div>${c}
+      <a class="btn primary" href="https://www.facebook.com/${esc(r.posted.fbPostId)}" target="_blank">Vezi postarea pe Facebook ↗</a>`;
   } else if (r.skipped) {
-    body = `<p>Sărit: ${esc(String(r.skipped))}</p>`;
+    body = `<div class="alert warn">Sărit: ${esc(String(r.skipped))}</div>`;
   } else if (r.error) {
-    body = `<p class="err">Eroare: ${esc(String(r.error))}</p><p><small>Articolul intră în carantină ${r.quarantinedMinutes || 20} min, apoi se reîncearcă automat.</small></p>`;
+    body = `<div class="alert err">Eroare: ${esc(String(r.error))}
+      <br><small>Articolul intră în carantină ${r.quarantinedMinutes || 20} min, apoi se reîncearcă automat.</small></div>`;
   } else {
-    body = `<p>Niciun articol nou de postat.</p>`;
+    body = `<div class="empty">Niciun articol nou de postat. ✔</div>`;
   }
-  res.send(page("Postare", `<div class="card"><h2>🚀 Rezultat</h2>${body}<a class="btn" href="/admin">Înapoi</a></div>`));
+  res.send(page("Postare manuală", `<div class="card"><h2>🚀 Rezultat</h2>${body}<p></p><a class="btn" href="/admin">← Înapoi</a></div>`));
 });
 
 // ---------- helpers ----------
@@ -444,35 +499,116 @@ function esc(s) {
 
 function fmtDate(d) {
   return new Intl.DateTimeFormat("ro-RO", {
-    dateStyle: "short", timeStyle: "short", timeZone: "Europe/Bucharest",
+    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Bucharest",
   }).format(new Date(d));
 }
 
-function page(title, body) {
+function page(title, body, { bare = false } = {}) {
+  const topbar = bare ? "" : `
+  <header class="topbar"><div class="topbar-inner">
+    <a href="/admin" class="logo">📣 Social Bot</a>
+    <span class="flex-spacer"></span>
+    <a class="btn ghost" href="/admin/fb/connect">🔗 Conectează cu Facebook</a>
+    <a class="btn ghost" href="/admin/sites/new">➕ Adaugă site</a>
+    <a class="btn ghost" href="/admin/logout">Ieși</a>
+  </div></header>`;
   return `<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>${esc(title)} — Social Bot</title>
 <style>
-  * { box-sizing: border-box; }
-  body { font-family: system-ui, sans-serif; margin: 0; background: #f2f4f7; color: #1a202c; }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
-  .topbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-  h1 { font-size: 22px; } h2 { font-size: 17px; margin-top: 0; }
-  .card { background: #fff; border-radius: 10px; padding: 16px; margin: 14px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-  label { display: block; margin: 10px 0 4px; font-weight: 600; font-size: 14px; }
-  input { width: 100%; padding: 9px; border: 1px solid #cbd5e0; border-radius: 6px; font-size: 14px; }
-  button, .btn { display: inline-block; margin-top: 10px; padding: 8px 14px; border: 0; border-radius: 6px;
-    background: #2b6cb0; color: #fff; font-size: 13px; cursor: pointer; text-decoration: none; }
-  button.warn { background: #c05621; } button.danger { background: #c53030; }
-  .actions form { display: inline; } .actions button, .actions .btn { margin: 2px; padding: 5px 9px; font-size: 12px; }
-  .err { color: #c53030; font-weight: 600; }
-  pre { background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; white-space: pre-wrap; font-family: inherit; }
-  .thumbs { display: flex; flex-wrap: wrap; gap: 6px; }
-  .thumbs img { width: 110px; height: 80px; object-fit: cover; border-radius: 6px; border: 1px solid #e2e8f0; }
-  .post { border-top: 2px solid #e2e8f0; margin-top: 14px; padding-top: 10px; }
-  small { color: #4a5568; }
-</style></head><body><div class="wrap">${body}</div></body></html>`;
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif; background: #f2f4f8; color: #16181d; font-size: 15px; line-height: 1.5; }
+  a { color: #2456e6; }
+  code, pre { font-family: ui-monospace, Consolas, monospace; }
+  pre { background: #f7f8fb; border: 1px solid #e6e9f0; border-radius: 10px; padding: 12px 14px; white-space: pre-wrap; font-size: 13.5px; margin: 8px 0; }
+  .muted { color: #6b7280; font-size: 13.5px; }
+
+  .topbar { position: sticky; top: 0; z-index: 10; background: #101a3c; box-shadow: 0 2px 12px rgba(16,26,60,.28); }
+  .topbar-inner { max-width: 1080px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .logo { color: #fff; font-size: 17px; font-weight: 800; text-decoration: none; letter-spacing: .2px; margin-right: 8px; }
+  .flex-spacer { flex: 1; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 20px 16px 70px; }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 15px; border: 1px solid #d4d9e2; border-radius: 9px;
+    background: #fff; color: #16181d; font-size: 13.5px; font-weight: 600; cursor: pointer; text-decoration: none; transition: all .15s; white-space: nowrap; }
+  .btn:hover { border-color: #94a3b8; box-shadow: 0 2px 6px rgba(0,0,0,.08); transform: translateY(-1px); }
+  .btn.primary { background: #2456e6; border-color: #2456e6; color: #fff; }
+  .btn.primary:hover { background: #1d47c4; }
+  .btn.warn { background: #c2570f; border-color: #c2570f; color: #fff; }
+  .btn.warn:hover { background: #a84a0a; }
+  .btn.danger { background: #dc2626; border-color: #dc2626; color: #fff; }
+  .btn.ghost { background: rgba(255,255,255,.12); border-color: transparent; color: #fff; }
+  .btn.ghost:hover { background: rgba(255,255,255,.22); box-shadow: none; }
+  .btn.sm { padding: 6px 11px; font-size: 12.5px; }
+  .btn.w100 { width: 100%; justify-content: center; margin-top: 16px; }
+
+  .card { background: #fff; border: 1px solid #e6e9f0; border-radius: 14px; padding: 20px 22px; margin: 16px 0; box-shadow: 0 1px 3px rgba(16,24,40,.05); }
+  h2 { font-size: 16px; margin-bottom: 12px; }
+  h3 { font-size: 15px; margin-bottom: 6px; }
+
+  .site { }
+  .site-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .site-name { font-size: 18px; font-weight: 800; }
+  .site-meta { display: flex; gap: 14px 20px; flex-wrap: wrap; color: #6b7280; font-size: 13px; margin-bottom: 4px; }
+  .site-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; border-top: 1px solid #eef0f4; padding-top: 14px; margin-top: 12px; }
+  .site-actions form { display: inline; }
+
+  .badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  .badge.ok { background: #e8f7ee; color: #14742f; }
+  .badge.err { background: #fdecec; color: #b42318; }
+  .badge.warn { background: #fff4e5; color: #9a5b13; }
+  .badge.off { background: #eef0f4; color: #5b6472; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; }
+  .dot.gray { background: #9ca3af; }
+
+  .alert { border-radius: 10px; padding: 12px 14px; margin: 10px 0; font-size: 13.5px; }
+  .alert.err { background: #fdecec; color: #b42318; border: 1px solid #f7c8c4; }
+  .alert.ok { background: #e8f7ee; color: #14742f; border: 1px solid #bfe8cd; }
+  .alert.warn { background: #fff4e5; color: #9a5b13; border: 1px solid #f5ddb8; }
+
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; color: #6b7280; font-size: 11.5px; text-transform: uppercase; letter-spacing: .5px; padding: 8px; border-bottom: 2px solid #eef0f4; }
+  td { padding: 10px 8px; border-bottom: 1px solid #f1f3f7; vertical-align: middle; }
+  tr:hover td { background: #f8fafc; }
+  .nowrap { white-space: nowrap; }
+  .post-link { color: #16181d; text-decoration: none; font-weight: 600; }
+  .post-link:hover { color: #2456e6; }
+
+  label { display: block; margin: 14px 0 6px; font-weight: 700; font-size: 13.5px; }
+  label small { font-weight: 400; color: #6b7280; }
+  input, select { width: 100%; padding: 10px 13px; border: 1.5px solid #d4d9e2; border-radius: 9px; font-size: 14px; background: #fff; }
+  input:focus, select:focus { outline: none; border-color: #2456e6; box-shadow: 0 0 0 3px rgba(36,86,230,.13); }
+  input[readonly] { background: #f2f4f8; color: #6b7280; }
+  select { width: auto; padding: 8px 10px; }
+  .inline-form { display: flex; gap: 8px; align-items: center; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+  .form-card { max-width: 720px; }
+  .form-actions { display: flex; gap: 10px; margin-top: 20px; }
+  .danger-zone { max-width: 720px; border-color: #f7c8c4; }
+
+  .empty { color: #6b7280; text-align: center; padding: 26px 10px; font-size: 14px; }
+
+  .post { border-top: 2px solid #eef0f4; margin-top: 18px; padding-top: 14px; }
+  .thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .thumbs img { width: 118px; height: 86px; object-fit: cover; border-radius: 9px; border: 1px solid #e6e9f0; transition: transform .15s; }
+  .thumbs a:hover img { transform: scale(1.05); }
+
+  .login-wrap { min-height: 92vh; display: flex; align-items: center; justify-content: center; }
+  .login-card { width: 100%; max-width: 380px; text-align: center; padding: 34px 30px; }
+  .login-logo { font-size: 44px; }
+  .login-title { font-size: 22px; font-weight: 800; margin-top: 6px; }
+  .login-sub { color: #6b7280; font-size: 13.5px; margin-bottom: 10px; }
+  .login-card label { text-align: left; }
+
+  @media (max-width: 640px) {
+    .form-grid { grid-template-columns: 1fr; }
+    .site-actions .flex-spacer { display: none; }
+    .topbar-inner { padding: 10px 12px; }
+    .btn { padding: 8px 12px; }
+    .card { padding: 16px; }
+  }
+</style></head><body>${topbar}<div class="wrap">${body}</div></body></html>`;
 }
