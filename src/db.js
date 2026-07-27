@@ -31,6 +31,7 @@ export async function ensureSchema() {
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     );
+    ALTER TABLE sites ADD COLUMN IF NOT EXISTS exclude_pattern TEXT NOT NULL DEFAULT '';
   `);
 }
 

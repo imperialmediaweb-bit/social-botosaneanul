@@ -13,7 +13,13 @@ const DRY_RUN_MAX_ITEMS = 5;
 // doar articole proaspete: mai vechi de atât (ore) nu se postează niciodată
 const MAX_ARTICLE_AGE_HOURS = parseInt(process.env.MAX_ARTICLE_AGE_HOURS || "24", 10);
 
+// Orar de postare (ora României). Default 6→22; pentru NON-STOP setează în
+// env BUSINESS_HOURS_START=0 și BUSINESS_HOURS_END=24.
+const BH_START = parseInt(process.env.BUSINESS_HOURS_START || "6", 10);
+const BH_END = parseInt(process.env.BUSINESS_HOURS_END || "22", 10);
+
 function isBusinessHoursRomania() {
+  if (BH_START === BH_END || (BH_START <= 0 && BH_END >= 24)) return true; // non-stop
   const h = parseInt(
     new Intl.DateTimeFormat("ro-RO", {
       hour: "numeric",
@@ -22,7 +28,21 @@ function isBusinessHoursRomania() {
     }).format(new Date()),
     10
   );
-  return h >= 6 && h < 22;
+  return BH_START < BH_END ? h >= BH_START && h < BH_END : h >= BH_START || h < BH_END;
+}
+
+// Filtru de excludere per site (ex. „hotnews"): articolele care se potrivesc
+// nu se postează niciodată. Se verifică titlul + rezumatul + conținutul din
+// feed și, în al doilea pas, textul real al articolului de pe pagină.
+function isExcluded(site, item, articleText = "") {
+  const pattern = (site.exclude_pattern || "").trim();
+  if (!pattern) return false;
+  try {
+    const re = new RegExp(pattern, "i");
+    return re.test(`${item.title}\n${item.description}\n${item.contentEncoded}\n${item.link}\n${articleText}`);
+  } catch {
+    return false; // regex invalid în setări → nu blocăm postarea
+  }
 }
 
 export async function runSocialPost({ siteSlug = null, force = false, dry = false } = {}) {
@@ -69,7 +89,7 @@ async function processSite(site, { force, dry }) {
   if (!force && !dry) {
     const t = await pool.query(
       `SELECT 1 FROM external_fb_posts
-       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id <> 'baseline'
+       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')
          AND posted_at > NOW() - make_interval(mins => $2)
        LIMIT 1`,
       [pageId, THROTTLE_MINUTES]
@@ -130,7 +150,28 @@ async function processSite(site, { force, dry }) {
     );
     if (claim.rowCount === 0) continue; // deja postat sau revendicat/în carantină
 
+    // filtru de excludere, pasul 1: pe datele din feed (ieftin, fără fetch)
+    if (isExcluded(site, item)) {
+      await pool.query(
+        `UPDATE external_fb_posts SET fb_post_id = 'filtered' WHERE page_id = $1 AND item_url = $2`,
+        [pageId, item.link]
+      );
+      out.filtered = (out.filtered || 0) + 1;
+      continue;
+    }
+
     const media = await extractGallery(item.link, item.contentEncoded, item.mediaUrl);
+
+    // filtru de excludere, pasul 2: pe textul real al articolului (atribuirea
+    // sursei — ex. „sursa: HotNews" — apare des doar în corpul articolului)
+    if (isExcluded(site, item, media.text)) {
+      await pool.query(
+        `UPDATE external_fb_posts SET fb_post_id = 'filtered' WHERE page_id = $1 AND item_url = $2`,
+        [pageId, item.link]
+      );
+      out.filtered = (out.filtered || 0) + 1;
+      continue;
+    }
     const gallery = media.images;
     // textul REAL al articolului (de pe pagină) e sursa captionului; feed-ul
     // e doar fallback — rezumatele sărace duc la halucinații AI

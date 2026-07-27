@@ -91,7 +91,7 @@ admin.get("/", async (req, res) => {
     `SELECT p.page_id, p.item_url, p.fb_post_id, p.posted_at, s.name AS site_name
      FROM external_fb_posts p
      LEFT JOIN sites s ON s.fb_page_id = p.page_id
-     WHERE p.fb_post_id IS NOT NULL AND p.fb_post_id <> 'baseline'
+     WHERE p.fb_post_id IS NOT NULL AND p.fb_post_id NOT IN ('baseline', 'filtered')
      ORDER BY p.posted_at DESC LIMIT 20`
   );
 
@@ -99,7 +99,7 @@ admin.get("/", async (req, res) => {
     const { rows } = await pool.query(
       `SELECT MAX(posted_at) AS last, COUNT(*)::int AS n
        FROM external_fb_posts
-       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id <> 'baseline'`,
+       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')`,
       [s.fb_page_id || "-"]
     );
     const st = statuses[i];
@@ -163,6 +163,8 @@ function siteForm(s = {}, isNew = true) {
     <input name="fb_access_token" value="" placeholder="${s.fb_access_token ? "•••• setat — scrie doar dacă vrei să-l schimbi" : "EAAB..."}">
     <label>Cheie OpenAI dedicată <small>(opțional; gol = folosește cheia globală${isNew ? "" : ", sau păstrează cheia actuală"})</small></label>
     <input name="openai_api_key" value="" placeholder="${s.openai_api_key ? "•••• setată" : "sk-... (opțional)"}">
+    <label>Excludere articole <small>(opțional; cuvânt sau regex — articolele care îl conțin în titlu/text/sursă NU se postează; ex: <b>hotnews</b>)</small></label>
+    <input name="exclude_pattern" value="${esc(s.exclude_pattern || "")}" placeholder="ex: hotnews">
     <button type="submit">💾 Salvează</button> <a class="btn" href="/admin">Renunță</a>
     ${isNew ? "" : `</form><form method="post" action="/admin/sites/${esc(s.slug)}/delete" onsubmit="return confirm('Ștergi site-ul ${esc(s.slug)}? Istoricul postărilor rămâne (dedup intact).')" class="card"><button class="danger">🗑️ Șterge site-ul</button>`}
   </form>`;
@@ -177,9 +179,9 @@ admin.get("/sites/:slug/edit", async (req, res) => {
 });
 
 admin.post("/sites", async (req, res) => {
-  const { slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key } = req.body;
+  const { slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern } = req.body;
   if (!/^[a-z0-9-]+$/.test(slug || "")) return res.status(400).send(page("Eroare", `<p class="err">Slug invalid.</p><a class="btn" href="/admin">Înapoi</a>`));
-  await upsertSite({ slug, name, feed_url, fb_page_id: (fb_page_id || "").trim(), fb_access_token: (fb_access_token || "").trim(), openai_api_key: (openai_api_key || "").trim() });
+  await upsertSite({ slug, name, feed_url, fb_page_id: (fb_page_id || "").trim(), fb_access_token: (fb_access_token || "").trim(), openai_api_key: (openai_api_key || "").trim(), exclude_pattern: (exclude_pattern || "").trim() });
   res.redirect("/admin");
 });
 
