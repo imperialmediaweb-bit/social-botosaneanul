@@ -31,6 +31,16 @@ app.get("/api/cron/social-post", async (req, res) => {
   }
 });
 
+// erori scăpate din rute (inclusiv async, prin wrapperul din admin) → 500,
+// nu proces mort
+app.use((err, _req, res, _next) => {
+  console.error("http error:", err);
+  if (!res.headersSent) res.status(500).json({ error: "internal" });
+});
+
+// plasă de siguranță la nivel de proces: logăm, nu murim
+process.on("unhandledRejection", (e) => console.error("unhandledRejection:", e));
+
 const port = parseInt(process.env.PORT || "3000", 10);
 
 ensureSchema()

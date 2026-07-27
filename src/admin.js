@@ -6,6 +6,20 @@ import { runSocialPost } from "./cron.js";
 
 export const admin = express.Router();
 
+// Express 4 nu prinde erorile din handlerele async — o eroare de DB ar deveni
+// unhandledRejection și ar omorî procesul. Împachetăm automat toate rutele.
+for (const method of ["get", "post"]) {
+  const orig = admin[method].bind(admin);
+  admin[method] = (path, ...handlers) =>
+    orig(path, ...handlers.map((h) => (req, res, next) => Promise.resolve(h(req, res, next)).catch(next)));
+}
+
+function safeEqual(a, b) {
+  const ba = Buffer.from(String(a || ""));
+  const bb = Buffer.from(String(b || ""));
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+
 // ---------- autentificare (parolă din ADMIN_PASSWORD, cookie semnat) ----------
 
 function cookieToken() {
@@ -22,7 +36,24 @@ function isAuthed(req) {
       return i === -1 ? [c.trim(), ""] : [c.slice(0, i).trim(), c.slice(i + 1).trim()];
     })
   );
-  return !!process.env.ADMIN_PASSWORD && cookies.adm === cookieToken();
+  return !!process.env.ADMIN_PASSWORD && safeEqual(cookies.adm, cookieToken());
+}
+
+// anti brute-force pe login: max 10 încercări eșuate / 15 min / IP
+const loginAttempts = new Map();
+function tooManyAttempts(ip) {
+  const now = Date.now();
+  const a = loginAttempts.get(ip);
+  if (a && a.resetAt < now) loginAttempts.delete(ip);
+  return (loginAttempts.get(ip)?.n || 0) >= 10;
+}
+function recordFailedLogin(ip) {
+  const a = loginAttempts.get(ip) || { n: 0, resetAt: Date.now() + 15 * 60 * 1000 };
+  a.n++;
+  loginAttempts.set(ip, a);
+}
+function clientIp(req) {
+  return (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
 }
 
 admin.use(express.urlencoded({ extended: false }));
@@ -47,10 +78,16 @@ admin.get("/login", (req, res) => {
 });
 
 admin.post("/login", (req, res) => {
-  if (req.body.password === process.env.ADMIN_PASSWORD) {
+  const ip = clientIp(req);
+  if (tooManyAttempts(ip)) {
+    return res.status(429).send(page("Login", `<div class="card"><p class="err">Prea multe încercări. Așteaptă 15 minute.</p></div>`));
+  }
+  if (safeEqual(req.body.password, process.env.ADMIN_PASSWORD)) {
+    loginAttempts.delete(ip);
     res.setHeader("Set-Cookie", `adm=${cookieToken()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
     return res.redirect("/admin");
   }
+  recordFailedLogin(ip);
   res.send(page("Login", `<form method="post" action="/admin/login" class="card">
     <h2>🔐 Panou de administrare</h2>
     <p class="err">Parolă greșită.</p>

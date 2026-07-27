@@ -7,6 +7,10 @@ export const pool = new Pool({
   ssl: process.env.DATABASE_SSL === "1" ? { rejectUnauthorized: false } : undefined,
 });
 
+// conexiunile idle pică la orice restart de Postgres; fără handler, eventul
+// 'error' netratat OMOARĂ procesul Node — logăm și pool-ul se reface singur
+pool.on("error", (e) => console.error("pg pool error:", e.message));
+
 export async function ensureSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS external_fb_posts (
