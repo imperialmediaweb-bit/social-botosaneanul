@@ -89,9 +89,9 @@ function loginPage(error = "") {
   return page("Autentificare", `
     <div class="login-wrap">
       <form method="post" action="/admin/login" class="card login-card">
-        <div class="login-logo">📣</div>
-        <h1 class="login-title">Social Bot</h1>
-        <p class="login-sub">Panoul de administrare</p>
+        <div class="login-logo">🕴️</div>
+        <h1 class="login-title">Social Botoșăneanul</h1>
+        <p class="login-sub">Panoul de administrare a postărilor</p>
         ${error ? `<div class="alert err">${error}</div>` : ""}
         <label>Parola</label>
         <input type="password" name="password" autofocus autocomplete="current-password">
@@ -532,7 +532,7 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
     : "";
   const topbar = bare ? "" : `
   <header class="topbar"><div class="topbar-inner">
-    <a href="/admin" class="logo">📣 Social Bot</a>
+    <a href="/admin" class="logo">🕴️ <span class="logo-name">Social Botoșăneanul</span></a>
     <span class="flex-spacer"></span>
     ${adminBtns}
     <a class="btn ghost" href="/admin/logout">Ieși</a>
@@ -540,7 +540,7 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
   return `<!doctype html><html lang="ro"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>${esc(title)} — Social Bot</title>
+<title>${esc(title)} — Social Botoșăneanul</title>
 <style>
   * { box-sizing: border-box; margin: 0; }
   body { font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif; background: #f2f4f8; color: #16181d; font-size: 15px; line-height: 1.5; }
@@ -549,9 +549,10 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
   pre { background: #f7f8fb; border: 1px solid #e6e9f0; border-radius: 10px; padding: 12px 14px; white-space: pre-wrap; font-size: 13.5px; margin: 8px 0; }
   .muted { color: #6b7280; font-size: 13.5px; }
 
-  .topbar { position: sticky; top: 0; z-index: 10; background: #101a3c; box-shadow: 0 2px 12px rgba(16,26,60,.28); }
+  .topbar { position: sticky; top: 0; z-index: 10; background: linear-gradient(100deg, #16226e 0%, #2c3c9c 100%); box-shadow: 0 2px 12px rgba(22,34,110,.32); }
   .topbar-inner { max-width: 1080px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .logo { color: #fff; font-size: 17px; font-weight: 800; text-decoration: none; letter-spacing: .2px; margin-right: 8px; }
+  .logo { color: #fff; font-size: 18px; text-decoration: none; letter-spacing: .2px; margin-right: 8px; display: inline-flex; align-items: center; gap: 8px; }
+  .logo-name { font-family: "Playfair Display", Georgia, "Times New Roman", serif; font-weight: 700; }
   .flex-spacer { flex: 1; }
 
   .wrap { max-width: 1080px; margin: 0 auto; padding: 20px 16px 70px; }
@@ -624,7 +625,8 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
   .login-wrap { min-height: 92vh; display: flex; align-items: center; justify-content: center; }
   .login-card { width: 100%; max-width: 380px; text-align: center; padding: 34px 30px; }
   .login-logo { font-size: 44px; }
-  .login-title { font-size: 22px; font-weight: 800; margin-top: 6px; }
+  .login-title { font-size: 22px; font-weight: 700; margin-top: 6px; font-family: "Playfair Display", Georgia, "Times New Roman", serif; }
+  .login-card { border-top: 4px solid #16226e; }
   .login-sub { color: #6b7280; font-size: 13.5px; margin-bottom: 10px; }
   .login-card label { text-align: left; }
 
