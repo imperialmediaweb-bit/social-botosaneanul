@@ -287,9 +287,41 @@ function prettyTitle(url) {
   }
 }
 
+// reacții/comentarii/distribuiri pentru o postare, live din Graph API
+async function postEngagement(fbPostId, token) {
+  try {
+    const r = await fetch(
+      `https://graph.facebook.com/v21.0/${encodeURIComponent(fbPostId)}` +
+      `?fields=reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0),shares` +
+      `&access_token=${encodeURIComponent(token)}`,
+      { signal: AbortSignal.timeout(5000), cache: "no-store" }
+    );
+    const d = await r.json();
+    if (d.error) return null;
+    return {
+      reactions: d.reactions?.summary?.total_count ?? 0,
+      comments: d.comments?.summary?.total_count ?? 0,
+      shares: d.shares?.count ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 admin.get("/", async (req, res) => {
   const sites = await getSites();
   const statuses = await Promise.all(sites.map(tokenStatus));
+
+  // statistici reale din registru (doar postări reale, fără marcaje interne)
+  const { rows: [stats] } = await pool.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE posted_at > NOW() - INTERVAL '24 hours')::int AS last24,
+       COUNT(*) FILTER (WHERE posted_at > NOW() - INTERVAL '7 days')::int AS last7,
+       COUNT(*) FILTER (WHERE posted_at > NOW() - INTERVAL '30 days')::int AS last30,
+       COUNT(*)::int AS total
+     FROM external_fb_posts
+     WHERE fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')`
+  );
 
   // fb_post_id='baseline'/'filtered' = marcaje interne, nu postări reale
   const { rows: lastPosts } = await pool.query(
@@ -336,6 +368,7 @@ admin.get("/", async (req, res) => {
         <form method="post" action="/admin/sites/${esc(s.slug)}/dry-run"><button class="btn">🧪 Test fără postare</button></form>
         <form method="post" action="/admin/sites/${esc(s.slug)}/run-now" onsubmit="return confirm('Postează ACUM pe Facebook primul articol nepostat de la ${esc(s.name)}. Continui?')"><button class="btn warn">🚀 Postează acum</button></form>
         <span class="flex-spacer"></span>
+        <a class="btn sm" href="/admin/sites/${esc(s.slug)}/style">✍️ Stil postări</a>
         ${req.role === "admin" ? `<a class="btn sm" href="/admin/sites/${esc(s.slug)}/edit">⚙️ Setări</a>` : ""}
         <form method="post" action="/admin/sites/${esc(s.slug)}/check"><button class="btn sm">🔍 Verifică token</button></form>
         <form method="post" action="/admin/sites/${esc(s.slug)}/toggle"><button class="btn sm">${s.active ? "⏸ Pune pe pauză" : "▶ Pornește"}</button></form>
@@ -343,21 +376,44 @@ admin.get("/", async (req, res) => {
     </div>`;
   }));
 
-  const postRows = lastPosts.map((p) => `<tr>
+  // performanța reală pe Facebook a ultimelor postări (în paralel, cu timeout)
+  const tokenByPage = Object.fromEntries(sites.map((s) => [s.fb_page_id, s.fb_access_token]));
+  const engagement = await Promise.all(
+    lastPosts.map((p) => tokenByPage[p.page_id] ? postEngagement(p.fb_post_id, tokenByPage[p.page_id]) : null)
+  );
+  const engTotal = engagement.filter(Boolean).reduce(
+    (a, e) => ({ r: a.r + e.reactions, c: a.c + e.comments, s: a.s + e.shares }),
+    { r: 0, c: 0, s: 0 }
+  );
+
+  const postRows = lastPosts.map((p, i) => {
+    const e = engagement[i];
+    return `<tr>
     <td class="nowrap muted">${fmtDate(p.posted_at)}</td>
     <td class="nowrap">${esc(p.site_name || p.page_id)}</td>
     <td><a href="${esc(p.item_url)}" target="_blank" class="post-link">${esc(prettyTitle(p.item_url))}</a></td>
+    <td class="nowrap eng">${e ? `👍 ${e.reactions} &nbsp;💬 ${e.comments} &nbsp;↗ ${e.shares}` : `<span class="muted">–</span>`}</td>
     <td class="nowrap"><a class="btn sm" href="https://www.facebook.com/${esc(p.fb_post_id)}" target="_blank">Vezi pe FB ↗</a></td>
-  </tr>`).join("");
+  </tr>`;
+  }).join("");
+
+  const statTiles = `<div class="stats-row">
+    <div class="stat"><div class="stat-n">${stats.last24}</div><div class="stat-l">postări în 24h</div></div>
+    <div class="stat"><div class="stat-n">${stats.last7}</div><div class="stat-l">în ultimele 7 zile</div></div>
+    <div class="stat"><div class="stat-n">${stats.last30}</div><div class="stat-l">în ultimele 30 de zile</div></div>
+    <div class="stat"><div class="stat-n">${stats.total}</div><div class="stat-l">total postări</div></div>
+    <div class="stat accent"><div class="stat-n">${engTotal.r + engTotal.c + engTotal.s}</div><div class="stat-l">interacțiuni la ultimele ${lastPosts.length} postări<br><small>👍 ${engTotal.r} · 💬 ${engTotal.c} · ↗ ${engTotal.s}</small></div></div>
+  </div>`;
 
   res.send(page("Dashboard", `
     ${req.role === "client" ? `<div class="alert ok" style="margin-top:16px">👋 Bun venit! De aici vedeți ce postează sistemul și puteți pune pe pauză sau posta manual. Pentru setări tehnice, vorbiți cu administratorul.</div>` : ""}
+    ${statTiles}
     ${siteCards.join("")}
     ${sites.length === 0 ? `<div class="card empty">🌱 Niciun site încă. Adaugă unul cu butonul „Adaugă site" de sus.</div>` : ""}
     <div class="card">
       <h2>🕘 Ultimele postări</h2>
       ${postRows
-        ? `<div class="table-scroll"><table><tr><th>Data</th><th>Site</th><th>Articol</th><th></th></tr>${postRows}</table></div>`
+        ? `<div class="table-scroll"><table><tr><th>Data</th><th>Site</th><th>Articol</th><th>Performanță</th><th></th></tr>${postRows}</table></div>`
         : `<div class="empty">Nicio postare încă. Primul articol nou publicat pe site va apărea aici automat. 🚀</div>`}
     </div>`, { role: req.role }));
 });
@@ -394,6 +450,8 @@ function siteForm(s = {}, isNew = true) {
       <input name="openai_api_key" value="" placeholder="${s.openai_api_key ? "•••• setată" : "sk-... (opțional)"}">
       <label>Excludere articole <small>(cuvânt sau regex; articolele care îl conțin în titlu/text/sursă NU se postează — ex: <b>hotnews</b>)</small></label>
       <input name="exclude_pattern" value="${esc(s.exclude_pattern || "")}" placeholder="ex: hotnews">
+      <label>Stilul postărilor — instrucțiuni pentru AI <small>(scrie liber cum vrei să sune postările; ex: „mai lungi, ton serios de presă, fără emoji" sau „scurte și energice, cu emoji"). Regulile de siguranță (fără fapte inventate, fără nume) rămân mereu active.</small></label>
+      <textarea name="style_prompt" rows="3" placeholder="ex: Ton jurnalistic sobru. Două propoziții. Fără emoji la subiectele grave.">${esc(s.style_prompt || "")}</textarea>
       <div class="form-actions">
         <button type="submit" class="btn primary">💾 Salvează</button>
         <a class="btn" href="/admin">Renunță</a>
@@ -418,7 +476,7 @@ admin.get("/sites/:slug/edit", adminOnly, async (req, res) => {
 });
 
 admin.post("/sites", adminOnly, async (req, res) => {
-  const { slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern } = req.body;
+  const { slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern, style_prompt } = req.body;
   if (!/^[a-z0-9-]+$/.test(slug || "")) {
     return res.status(400).send(page("Eroare", `<div class="card"><div class="alert err">Slug invalid.</div><a class="btn" href="/admin">← Înapoi</a></div>`));
   }
@@ -428,6 +486,7 @@ admin.post("/sites", adminOnly, async (req, res) => {
     fb_access_token: (fb_access_token || "").trim(),
     openai_api_key: (openai_api_key || "").trim(),
     exclude_pattern: (exclude_pattern || "").trim(),
+    style_prompt: (style_prompt || "").trim().slice(0, 1000),
   });
   res.redirect("/admin");
 });
@@ -440,6 +499,38 @@ admin.post("/sites/:slug/toggle", async (req, res) => {
 
 admin.post("/sites/:slug/delete", adminOnly, async (req, res) => {
   await deleteSite(req.params.slug);
+  res.redirect("/admin");
+});
+
+// ---------- stilul postărilor (accesibil și clientului) ----------
+
+admin.get("/sites/:slug/style", async (req, res) => {
+  const s = await getSite(req.params.slug);
+  if (!s) return res.redirect("/admin");
+  res.send(page("Stilul postărilor", `<div class="card form-card">
+    <h2>✍️ Stilul postărilor — ${esc(s.name)}</h2>
+    <p class="muted">Scrieți liber cum vreți să sune postările de Facebook, iar inteligența artificială va respecta indicațiile.
+    Exemple: „mai lungi și detaliate", „ton serios de presă, fără emoji", „scurte și energice", „fără emoji la subiecte grave".</p>
+    <form method="post" action="/admin/sites/${esc(s.slug)}/style">
+      <label>Indicații de stil</label>
+      <textarea name="style_prompt" rows="5" placeholder="ex: Ton jurnalistic sobru. Două propoziții. Fără emoji la subiectele grave.">${esc(s.style_prompt || "")}</textarea>
+      <p class="muted">Regulile de siguranță rămân mereu active indiferent de indicații: postările nu inventează fapte, nu dau nume de persoane și nu dezvăluie tot conținutul articolului.</p>
+      <div class="form-actions">
+        <button type="submit" class="btn primary">💾 Salvează stilul</button>
+        <a class="btn" href="/admin">Renunță</a>
+      </div>
+    </form>
+  </div>`, { role: req.role }));
+});
+
+admin.post("/sites/:slug/style", async (req, res) => {
+  const s = await getSite(req.params.slug);
+  if (s) {
+    await pool.query(
+      `UPDATE sites SET style_prompt = $2, updated_at = NOW() WHERE slug = $1`,
+      [s.slug, (req.body.style_prompt || "").trim().slice(0, 1000)]
+    );
+  }
   res.redirect("/admin");
 });
 
@@ -606,8 +697,8 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
 
   label { display: block; margin: 14px 0 6px; font-weight: 700; font-size: 13.5px; }
   label small { font-weight: 400; color: #6b7280; }
-  input, select { width: 100%; padding: 10px 13px; border: 1.5px solid #d4d9e2; border-radius: 9px; font-size: 14px; background: #fff; }
-  input:focus, select:focus { outline: none; border-color: #2456e6; box-shadow: 0 0 0 3px rgba(36,86,230,.13); }
+  input, select, textarea { width: 100%; padding: 10px 13px; border: 1.5px solid #d4d9e2; border-radius: 9px; font-size: 14px; background: #fff; font-family: inherit; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: #2456e6; box-shadow: 0 0 0 3px rgba(36,86,230,.13); }
   input[readonly] { background: #f2f4f8; color: #6b7280; }
   select { width: auto; padding: 8px 10px; }
   .inline-form { display: flex; gap: 8px; align-items: center; }
@@ -617,6 +708,15 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
   .danger-zone { max-width: 720px; border-color: #f7c8c4; }
 
   .empty { color: #6b7280; text-align: center; padding: 26px 10px; font-size: 14px; }
+
+  .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
+  .stat { background: #fff; border: 1px solid #e6e9f0; border-radius: 14px; padding: 16px 18px; box-shadow: 0 1px 3px rgba(16,24,40,.05); }
+  .stat-n { font-size: 28px; font-weight: 800; line-height: 1.1; }
+  .stat-l { color: #6b7280; font-size: 12.5px; margin-top: 4px; }
+  .stat.accent { background: linear-gradient(120deg, #16226e 0%, #2c3c9c 100%); border: 0; }
+  .stat.accent .stat-n, .stat.accent .stat-l { color: #fff; }
+  .stat.accent .stat-l small { color: rgba(255,255,255,.75); }
+  .eng { font-size: 12.5px; }
 
   .post { border-top: 2px solid #eef0f4; margin-top: 18px; padding-top: 14px; }
   .thumbs { display: flex; flex-wrap: wrap; gap: 8px; }

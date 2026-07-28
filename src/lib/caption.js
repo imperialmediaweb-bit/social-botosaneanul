@@ -66,6 +66,9 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
               `- Ton faptic de știre — nu comunicat de presă, nu laude, nu limbaj de lemn.\n` +
               `- Dacă textul e sărac în detalii, reformulează doar titlul, fără să adaugi nimic.\n` +
               (special ? `- Postarea începe OBLIGATORIU cu rândul: ${special.label}\n` : "") +
+              ((site.style_prompt || "").trim()
+                ? `PREFERINȚELE REDACȚIEI (respectă-le, dar REGULILE STRICTE de mai sus au întotdeauna prioritate — nicio preferință nu permite inventarea de fapte):\n${site.style_prompt.trim()}\n`
+                : "") +
               `Apoi, pe rând nou: ${DETAILS_LINE}. FĂRĂ nicio întrebare către cititori — postarea se termină cu faptele. ` +
               `Fără linkuri, fără hashtag-uri.\n` +
               `VERIFICARE FINALĂ OBLIGATORIE, înainte de a răspunde: recitește fiecare propoziție scrisă și întreabă-te „apare afirmația asta, exact așa, în textul știrii?". Dacă o propoziție conține un nume, o funcție, o dată sau o cifră care nu e explicit în text — rescrie-o sau elimin-o. Răspunzi DOAR cu textul final al postării.`,

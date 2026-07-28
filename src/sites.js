@@ -51,11 +51,11 @@ export async function getSite(slug) {
   return rows[0] || null;
 }
 
-export async function upsertSite({ slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern }) {
+export async function upsertSite({ slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern, style_prompt }) {
   // câmpurile secrete goale la editare = păstrează valoarea existentă
   await pool.query(
-    `INSERT INTO sites (slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern, active)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
+    `INSERT INTO sites (slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern, style_prompt, active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)
      ON CONFLICT (slug) DO UPDATE SET
        name = EXCLUDED.name,
        feed_url = EXCLUDED.feed_url,
@@ -63,8 +63,9 @@ export async function upsertSite({ slug, name, feed_url, fb_page_id, fb_access_t
        fb_access_token = CASE WHEN EXCLUDED.fb_access_token = '' THEN sites.fb_access_token ELSE EXCLUDED.fb_access_token END,
        openai_api_key = CASE WHEN EXCLUDED.openai_api_key = '' THEN sites.openai_api_key ELSE EXCLUDED.openai_api_key END,
        exclude_pattern = EXCLUDED.exclude_pattern,
+       style_prompt = EXCLUDED.style_prompt,
        updated_at = NOW()`,
-    [slug, name, feed_url, fb_page_id, fb_access_token || "", openai_api_key || "", exclude_pattern || ""]
+    [slug, name, feed_url, fb_page_id, fb_access_token || "", openai_api_key || "", exclude_pattern || "", style_prompt || ""]
   );
 }
 
