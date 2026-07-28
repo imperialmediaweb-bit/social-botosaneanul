@@ -408,7 +408,7 @@ admin.get("/", async (req, res) => {
   res.send(page("Dashboard", `
     ${req.role === "client" ? `<div class="alert ok" style="margin-top:16px">👋 Bun venit! De aici vedeți ce postează sistemul și puteți pune pe pauză sau posta manual. Pentru setări tehnice, vorbiți cu administratorul.</div>` : ""}
     ${statTiles}
-    ${siteCards.join("")}
+    <div class="sites-grid">${siteCards.join("")}</div>
     ${sites.length === 0 ? `<div class="card empty">🌱 Niciun site încă. Adaugă unul cu butonul „Adaugă site" de sus.</div>` : ""}
     <div class="card">
       <h2>🕘 Ultimele postări</h2>
@@ -666,12 +666,16 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
   h2 { font-size: 16px; margin-bottom: 12px; }
   h3 { font-size: 15px; margin-bottom: 6px; }
 
-  .site { }
+  .sites-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; margin: 16px 0; }
+  .sites-grid .card { margin: 0; display: flex; flex-direction: column; }
   .site-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
   .site-name { font-size: 18px; font-weight: 800; }
-  .site-meta { display: flex; gap: 14px 20px; flex-wrap: wrap; color: #6b7280; font-size: 13px; margin-bottom: 4px; }
-  .site-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; border-top: 1px solid #eef0f4; padding-top: 14px; margin-top: 12px; }
+  .site-meta { display: flex; gap: 8px 18px; flex-wrap: wrap; color: #6b7280; font-size: 13px; margin-bottom: 4px; }
+  .site-meta span { overflow-wrap: anywhere; }
+  .site-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; border-top: 1px solid #eef0f4; padding-top: 14px; margin-top: auto; }
+  .site .site-meta { margin-bottom: 12px; }
   .site-actions form { display: inline; }
+  @media (max-width: 900px) { .sites-grid { grid-template-columns: 1fr; } }
 
   .badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px; border-radius: 999px; font-size: 12px; font-weight: 700; }
   .badge.ok { background: #e8f7ee; color: #14742f; }
