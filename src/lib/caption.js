@@ -59,13 +59,15 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
               `6. Română corectă cu diacritice, 1-2 emoji potrivite subiectului.\n` +
               `REGULI STRICTE:\n` +
               `- Folosește DOAR informații care apar EXPLICIT în textul primit. Nu deduce, nu completa, nu presupune.\n` +
+              `- FUNCȚIILE/CALITĂȚILE persoanelor (antrenor, patron, finanțator, primar, senator, director etc.): atribuie o funcție unei persoane DOAR dacă textul o atribuie EXPLICIT exact acelei persoane. NU deduce funcția din context (ex: dacă cineva comentează un meci, NU înseamnă că e antrenorul). Dacă textul nu spune clar ce funcție are, nu-i da niciuna.\n` +
               `- Date calendaristice: menționezi o dată DOAR dacă apare explicit în textul știrii (data unui eveniment). Data publicării NU se menționează — e doar context pentru tine (poți spune „astăzi"/„ieri" doar dacă e clar din text și context).\n` +
               `- INTERZIS: cifre, nume, locuri sau interpretări care NU apar în text.\n` +
               `- Ton faptic de știre — nu comunicat de presă, nu laude, nu limbaj de lemn.\n` +
               `- Dacă textul e sărac în detalii, reformulează doar titlul, fără să adaugi nimic.\n` +
               (special ? `- Postarea începe OBLIGATORIU cu rândul: ${special.label}\n` : "") +
               `Apoi, pe rând nou: ${DETAILS_LINE}. FĂRĂ nicio întrebare către cititori — postarea se termină cu faptele. ` +
-              `Fără linkuri, fără hashtag-uri. Răspunzi DOAR cu textul postării.`,
+              `Fără linkuri, fără hashtag-uri.\n` +
+              `VERIFICARE FINALĂ OBLIGATORIE, înainte de a răspunde: recitește fiecare propoziție scrisă și întreabă-te „apare afirmația asta, exact așa, în textul știrii?". Dacă o propoziție conține un nume, o funcție, o dată sau o cifră care nu e explicit în text — rescrie-o sau elimin-o. Răspunzi DOAR cu textul final al postării.`,
           },
           {
             role: "user",
