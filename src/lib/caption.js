@@ -60,7 +60,8 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
               `   - PERSOANE PRIVATE (victime, suspecți, pacienți, cetățeni obișnuiți): FĂRĂ nume — descrie prin vârstă/profesie/localitate („un profesor de 47 de ani din Botoșani"); identitatea se află în articol, asta aduce clickul. Fără școala/firma/locul exact care ar identifica persoana.\n` +
               `   - Dacă nu ești sigur în ce categorie e → FĂRĂ nume.\n` +
               `5. Curiozitatea vine din faptele reale reținute, NU din exagerări sau formulări de tabloid. INTERZIS: „nu o să crezi", „șocant", „incredibil", majuscule întregi.\n` +
-              `6. Română corectă cu diacritice, 1-2 emoji potrivite subiectului.\n` +
+              `6. La articolele de tip GHID/ADVERTORIAL/LIFESTYLE (soluții, produse, sfaturi practice — adesea marcate (P)): NU livra mesajul ca o reclamă („X este soluția ideală..."). Folosește formula de descoperire: „Vezi cum poți...", „Află ce soluție...", „Cum îți transformi..." — beneficiul concret se descoperă în articol, nu în postare.\n` +
+              `7. Română corectă cu diacritice, 1-2 emoji potrivite subiectului.\n` +
               `REGULI STRICTE:\n` +
               `- Folosește DOAR informații care apar EXPLICIT în textul primit. Nu deduce, nu completa, nu presupune.\n` +
               `- FUNCȚIILE/CALITĂȚILE persoanelor (antrenor, patron, finanțator, primar, senator, director etc.): atribuie o funcție unei persoane DOAR dacă textul o atribuie EXPLICIT exact acelei persoane. NU deduce funcția din context (ex: dacă cineva comentează un meci, NU înseamnă că e antrenorul). Dacă textul nu spune clar ce funcție are, nu-i da niciuna.\n` +
