@@ -89,7 +89,7 @@ function loginPage(error = "") {
   return page("Autentificare", `
     <div class="login-wrap">
       <form method="post" action="/admin/login" class="card login-card">
-        <div class="login-logo">🕴️</div>
+        <div class="login-logo-wrap"><img src="https://www.botosaneanul.ro/assets/uploads/media-uploader/logo1684429147.png" alt="Botoșăneanul" class="login-logo-img" onerror="this.outerHTML='<div class=login-logo>🕴️</div>'"></div>
         <h1 class="login-title">Social Botoșăneanul</h1>
         <p class="login-sub">Panoul de administrare a postărilor</p>
         ${error ? `<div class="alert err">${error}</div>` : ""}
@@ -532,7 +532,7 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
     : "";
   const topbar = bare ? "" : `
   <header class="topbar"><div class="topbar-inner">
-    <a href="/admin" class="logo">🕴️ <span class="logo-name">Social Botoșăneanul</span></a>
+    <a href="/admin" class="logo"><img src="https://www.botosaneanul.ro/assets/uploads/media-uploader/logo1684429147.png" alt="Botoșăneanul" class="logo-img" onerror="this.style.display='none'"><span class="logo-name">· Social</span></a>
     <span class="flex-spacer"></span>
     ${adminBtns}
     <a class="btn ghost" href="/admin/logout">Ieși</a>
@@ -553,6 +553,7 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
   .topbar-inner { max-width: 1080px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .logo { color: #fff; font-size: 18px; text-decoration: none; letter-spacing: .2px; margin-right: 8px; display: inline-flex; align-items: center; gap: 8px; }
   .logo-name { font-family: "Playfair Display", Georgia, "Times New Roman", serif; font-weight: 700; }
+  .logo-img { height: 34px; width: auto; display: block; }
   .flex-spacer { flex: 1; }
 
   .wrap { max-width: 1080px; margin: 0 auto; padding: 20px 16px 70px; }
@@ -627,6 +628,8 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
   .login-logo { font-size: 44px; }
   .login-title { font-size: 22px; font-weight: 700; margin-top: 6px; font-family: "Playfair Display", Georgia, "Times New Roman", serif; }
   .login-card { border-top: 4px solid #16226e; }
+  .login-logo-wrap { background: linear-gradient(100deg, #16226e 0%, #2c3c9c 100%); border-radius: 10px; padding: 14px 10px; margin-bottom: 14px; }
+  .login-logo-img { max-width: 82%; height: auto; }
   .login-sub { color: #6b7280; font-size: 13.5px; margin-bottom: 10px; }
   .login-card label { text-align: left; }
 
