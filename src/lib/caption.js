@@ -55,7 +55,10 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
               `1. Citește TOT textul și identifică UNGHIUL știrii: care e faptul cel mai important/nou/cu impact pentru cititorii locali (cine, ce, unde). Nu primul paragraf — faptul cel mai puternic.\n` +
               `2. Prima propoziție = unghiul, formulat direct și concret — cârligul care prinde atenția.\n` +
               `3. NU dezvălui tot: păstrează deznodământul, suma exactă, decizia finală sau detaliul-cheie PENTRU ARTICOL. Postarea deschide subiectul, articolul îl închide. (Ex: „Un șofer a fost prins cu o alcoolemie record în centrul orașului" — fără să spui cât, cine sau ce pedeapsă a primit.)\n` +
-              `4. FĂRĂ NUMELE persoanelor din știre: descrie-le prin vârstă/profesie/localitate („un profesor de 47 de ani din Botoșani", „un tânăr din Dorohoi"). Numele, școala, firma, locul exact — se află DOAR în articol; asta îi face pe oameni să intre pe link. La fel, nu numi instituțiile/locurile secundare care identifică persoana.\n` +
+              `4. NUMELE persoanelor — judecă după CONTEXT cine e persoana:\n` +
+              `   - PERSOANE PUBLICE (politicieni, sportivi cunoscuți, oficiali, patroni de cluburi, artiști — oameni al căror nume e el însuși de interes public): numele POATE apărea dacă e în text și ajută știrea.\n` +
+              `   - PERSOANE PRIVATE (victime, suspecți, pacienți, cetățeni obișnuiți): FĂRĂ nume — descrie prin vârstă/profesie/localitate („un profesor de 47 de ani din Botoșani"); identitatea se află în articol, asta aduce clickul. Fără școala/firma/locul exact care ar identifica persoana.\n` +
+              `   - Dacă nu ești sigur în ce categorie e → FĂRĂ nume.\n` +
               `5. Curiozitatea vine din faptele reale reținute, NU din exagerări sau formulări de tabloid. INTERZIS: „nu o să crezi", „șocant", „incredibil", majuscule întregi.\n` +
               `6. Română corectă cu diacritice, 1-2 emoji potrivite subiectului.\n` +
               `REGULI STRICTE:\n` +
@@ -126,7 +129,7 @@ async function verifyCaption(apiKey, sourceText, draft) {
             content:
               `Ești corector de fapte la un ziar. Primești TEXTUL unei știri și o PROPUNERE de postare Facebook. Sarcina ta:\n` +
               `1. Verifică fiecare afirmație din propunere împotriva textului. Orice nume, funcție (antrenor/patron/primar...), dată, cifră sau fapt care NU apare explicit în text → elimină sau înlocuiește cu formulare generică susținută de text.\n` +
-              `2. Numele persoanelor NU au voie să apară — înlocuiește cu descrieri (vârstă/profesie/localitate) doar dacă apar în text.\n` +
+              `2. Numele persoanelor: la persoane PUBLICE (politicieni, sportivi cunoscuți, oficiali, artiști) numele poate rămâne dacă e în text. La persoane PRIVATE (victime, suspecți, cetățeni obișnuiți) numele se ELIMINĂ — înlocuiește cu descrieri (vârstă/profesie/localitate) doar dacă apar în text. Nesigur → fără nume.\n` +
               `3. Scurtează la 1-2 propoziții, maxim 40 de cuvinte (fără rândul cu 📌) — postarea e cârlig, nu rezumat: NU dezvălui deznodământul/detaliul-cheie.\n` +
               `4. ELIMINĂ orice urare sau comentariu editorial („mult succes", „felicitări", „condoleanțe", „baftă") — ziarul relatează fapte, nu urează. Postarea se termină cu un fapt.\n` +
               `5. Păstrează diacriticele, emoji-urile potrivite și rândul „📌 Detalii complete în primul comentariu 👇" la final, pe rând separat. Păstrează eticheta de rubrică (🗣️/📷/🎬) dacă există.\n` +
