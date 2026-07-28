@@ -41,7 +41,7 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        max_tokens: 220,
+        max_tokens: 160,
         temperature: 0.4,
         messages: [
           {
@@ -50,6 +50,7 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
               `Ești editor social media senior la un ziar românesc de știri (${site.name}). ` +
               `Primești o știre și scrii TEXTUL postării de Facebook.\n` +
               `SCOPUL: postarea trebuie să-l facă pe cititor să dea click pe linkul din primul comentariu ca să afle restul.\n` +
+              `LUNGIMEA: SCURT — 1-2 propoziții, maxim 40 de cuvinte în total. Cu cât spui mai puțin (dar concret), cu atât mai mulți intră pe articol.\n` +
               `METODA DE LUCRU — întâi analizezi, apoi scrii:\n` +
               `1. Citește TOT textul și identifică UNGHIUL știrii: care e faptul cel mai important/nou/cu impact pentru cititorii locali (cine, ce, unde). Nu primul paragraf — faptul cel mai puternic.\n` +
               `2. Prima propoziție = unghiul, formulat direct și concret — cârligul care prinde atenția.\n` +
@@ -84,11 +85,57 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
     const data = await res.json();
     let out = (data?.choices?.[0]?.message?.content || "").trim();
     if (!out) return null;
-    if (special && !out.includes(special.label.replace(/^[^\s]+\s/, ""))) {
+
+    // PASUL 2 — CORECTORUL: un al doilea apel confruntă fiecare afirmație cu
+    // textul sursă, taie ce nu e susținut și scurtează. La orice problemă,
+    // rămânem pe varianta din pasul 1.
+    const verified = await verifyCaption(apiKey, text, out);
+    if (verified) out = verified;
+
+    if (special && !out.toLowerCase().includes(special.label.replace(/^[^\s]+\s/, "").toLowerCase())) {
       out = `${special.label}\n${out}`;
     }
     if (!out.includes("primul comentariu")) out = `${out}\n\n${DETAILS_LINE}`;
     return out;
+  } catch {
+    return null;
+  }
+}
+
+// Al doilea ochi: verificator strict de fapte + scurtare. Returnează textul
+// final sau null (→ se folosește varianta inițială).
+async function verifyCaption(apiKey, sourceText, draft) {
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        max_tokens: 160,
+        temperature: 0.2,
+        messages: [
+          {
+            role: "system",
+            content:
+              `Ești corector de fapte la un ziar. Primești TEXTUL unei știri și o PROPUNERE de postare Facebook. Sarcina ta:\n` +
+              `1. Verifică fiecare afirmație din propunere împotriva textului. Orice nume, funcție (antrenor/patron/primar...), dată, cifră sau fapt care NU apare explicit în text → elimină sau înlocuiește cu formulare generică susținută de text.\n` +
+              `2. Numele persoanelor NU au voie să apară — înlocuiește cu descrieri (vârstă/profesie/localitate) doar dacă apar în text.\n` +
+              `3. Scurtează la 1-2 propoziții, maxim 40 de cuvinte (fără rândul cu 📌) — postarea e cârlig, nu rezumat: NU dezvălui deznodământul/detaliul-cheie.\n` +
+              `4. Păstrează diacriticele, emoji-urile potrivite și rândul „📌 Detalii complete în primul comentariu 👇" la final, pe rând separat. Păstrează eticheta de rubrică (🗣️/📷/🎬) dacă există.\n` +
+              `Răspunzi DOAR cu textul final al postării, nimic altceva.`,
+          },
+          { role: "user", content: `TEXTUL știrii: ${sourceText}\n\nPROPUNEREA de postare:\n${draft}` },
+        ],
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const out = (data?.choices?.[0]?.message?.content || "").trim();
+    return out.length >= 20 ? out : null;
   } catch {
     return null;
   }
