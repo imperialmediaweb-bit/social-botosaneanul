@@ -308,29 +308,10 @@ async function postEngagement(fbPostId, token) {
   }
 }
 
+// prima pagină: DOAR cardurile site-urilor — click pe card → pagina site-ului
 admin.get("/", async (req, res) => {
   const sites = await getSites();
   const statuses = await Promise.all(sites.map(tokenStatus));
-
-  // statistici reale din registru (doar postări reale, fără marcaje interne)
-  const { rows: [stats] } = await pool.query(
-    `SELECT
-       COUNT(*) FILTER (WHERE posted_at > NOW() - INTERVAL '24 hours')::int AS last24,
-       COUNT(*) FILTER (WHERE posted_at > NOW() - INTERVAL '7 days')::int AS last7,
-       COUNT(*) FILTER (WHERE posted_at > NOW() - INTERVAL '30 days')::int AS last30,
-       COUNT(*)::int AS total
-     FROM external_fb_posts
-     WHERE fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')`
-  );
-
-  // fb_post_id='baseline'/'filtered' = marcaje interne, nu postări reale
-  const { rows: lastPosts } = await pool.query(
-    `SELECT p.page_id, p.item_url, p.fb_post_id, p.posted_at, s.name AS site_name
-     FROM external_fb_posts p
-     LEFT JOIN sites s ON s.fb_page_id = p.page_id
-     WHERE p.fb_post_id IS NOT NULL AND p.fb_post_id NOT IN ('baseline', 'filtered')
-     ORDER BY p.posted_at DESC LIMIT 20`
-  );
 
   const siteCards = await Promise.all(sites.map(async (s, i) => {
     const { rows } = await pool.query(
@@ -341,81 +322,27 @@ admin.get("/", async (req, res) => {
     );
     const st = statuses[i];
     const tokenBadge =
-      st.state === "ok" ? `<span class="badge ok">✓ Conectat: ${esc(st.pageName)}</span>` :
+      st.state === "ok" ? `<span class="badge ok">✓ Conectat</span>` :
       st.state === "invalid" ? `<span class="badge err">✕ Token mort</span>` :
       st.state === "unconfigured" ? `<span class="badge warn">⚠ Neconectat</span>` :
-      `<span class="badge off">? Graph API indisponibil</span>`;
+      `<span class="badge off">? offline</span>`;
     const stateBadge = s.active
       ? `<span class="badge ok"><span class="dot"></span> Activ</span>`
       : `<span class="badge off"><span class="dot gray"></span> Pe pauză</span>`;
-    const tokenAlert = st.state === "invalid"
-      ? `<div class="alert err">Tokenul paginii a murit: ${esc((st.message || "").slice(0, 120))}<br>
-         <small>Apasă „Conectează cu Facebook" din bara de sus și releagă pagina — se rezolvă în 30 de secunde.</small></div>`
-      : "";
-    return `<div class="card site">
-      <div class="site-head">
-        <span class="site-name">${esc(s.name)}</span>
-        ${stateBadge} ${tokenBadge}
-      </div>
+    return `<a class="card site-card" href="/admin/sites/${esc(s.slug)}">
+      <div class="site-head"><span class="site-name">${esc(s.name)}</span></div>
+      <div class="site-badges">${stateBadge} ${tokenBadge}</div>
       <div class="site-meta">
-        <span title="Feed">📡 ${esc(s.feed_url)}</span>
-        <span title="Postări publicate">📊 ${rows[0].n} postări</span>
-        ${rows[0].last ? `<span title="Ultima postare">🕒 ultima: ${fmtDate(rows[0].last)}</span>` : ""}
-        ${s.exclude_pattern ? `<span title="Filtru de excludere">🚫 exclude: <b>${esc(s.exclude_pattern)}</b></span>` : ""}
+        <span>📊 ${rows[0].n} postări</span>
+        ${rows[0].last ? `<span>🕒 ultima: ${fmtDate(rows[0].last)}</span>` : ""}
       </div>
-      ${tokenAlert}
-      <div class="site-actions">
-        <form method="post" action="/admin/sites/${esc(s.slug)}/dry-run"><button class="btn">🧪 Test fără postare</button></form>
-        <form method="post" action="/admin/sites/${esc(s.slug)}/run-now" onsubmit="return confirm('Postează ACUM pe Facebook primul articol nepostat de la ${esc(s.name)}. Continui?')"><button class="btn warn">🚀 Postează acum</button></form>
-        <span class="flex-spacer"></span>
-        <a class="btn sm" href="/admin/sites/${esc(s.slug)}/style">✍️ Stil postări</a>
-        ${req.role === "admin" ? `<a class="btn sm" href="/admin/sites/${esc(s.slug)}/edit">⚙️ Setări</a>` : ""}
-        <form method="post" action="/admin/sites/${esc(s.slug)}/check"><button class="btn sm">🔍 Verifică token</button></form>
-        <form method="post" action="/admin/sites/${esc(s.slug)}/toggle"><button class="btn sm">${s.active ? "⏸ Pune pe pauză" : "▶ Pornește"}</button></form>
-      </div>
-    </div>`;
+      <div class="site-open">Deschide panoul site-ului →</div>
+    </a>`;
   }));
 
-  // performanța reală pe Facebook a ultimelor postări (în paralel, cu timeout)
-  const tokenByPage = Object.fromEntries(sites.map((s) => [s.fb_page_id, s.fb_access_token]));
-  const engagement = await Promise.all(
-    lastPosts.map((p) => tokenByPage[p.page_id] ? postEngagement(p.fb_post_id, tokenByPage[p.page_id]) : null)
-  );
-  const engTotal = engagement.filter(Boolean).reduce(
-    (a, e) => ({ r: a.r + e.reactions, c: a.c + e.comments, s: a.s + e.shares }),
-    { r: 0, c: 0, s: 0 }
-  );
-
-  const postRows = lastPosts.map((p, i) => {
-    const e = engagement[i];
-    return `<tr>
-    <td class="nowrap muted">${fmtDate(p.posted_at)}</td>
-    <td class="nowrap">${esc(p.site_name || p.page_id)}</td>
-    <td><a href="${esc(p.item_url)}" target="_blank" class="post-link">${esc(prettyTitle(p.item_url))}</a></td>
-    <td class="nowrap eng">${e ? `👍 ${e.reactions} &nbsp;💬 ${e.comments} &nbsp;↗ ${e.shares}` : `<span class="muted">–</span>`}</td>
-    <td class="nowrap"><a class="btn sm" href="https://www.facebook.com/${esc(p.fb_post_id)}" target="_blank">Vezi pe FB ↗</a></td>
-  </tr>`;
-  }).join("");
-
-  const statTiles = `<div class="stats-row">
-    <div class="stat"><div class="stat-n">${stats.last24}</div><div class="stat-l">postări în 24h</div></div>
-    <div class="stat"><div class="stat-n">${stats.last7}</div><div class="stat-l">în ultimele 7 zile</div></div>
-    <div class="stat"><div class="stat-n">${stats.last30}</div><div class="stat-l">în ultimele 30 de zile</div></div>
-    <div class="stat"><div class="stat-n">${stats.total}</div><div class="stat-l">total postări</div></div>
-    <div class="stat accent"><div class="stat-n">${engTotal.r + engTotal.c + engTotal.s}</div><div class="stat-l">interacțiuni la ultimele ${lastPosts.length} postări<br><small>👍 ${engTotal.r} · 💬 ${engTotal.c} · ↗ ${engTotal.s}</small></div></div>
-  </div>`;
-
-  res.send(page("Dashboard", `
-    ${req.role === "client" ? `<div class="alert ok" style="margin-top:16px">👋 Bun venit! De aici vedeți ce postează sistemul și puteți pune pe pauză sau posta manual. Pentru setări tehnice, vorbiți cu administratorul.</div>` : ""}
-    ${statTiles}
+  res.send(page("Site-uri", `
     <div class="sites-grid">${siteCards.join("")}</div>
-    ${sites.length === 0 ? `<div class="card empty">🌱 Niciun site încă. Adaugă unul cu butonul „Adaugă site" de sus.</div>` : ""}
-    <div class="card">
-      <h2>🕘 Ultimele postări</h2>
-      ${postRows
-        ? `<div class="table-scroll"><table><tr><th>Data</th><th>Site</th><th>Articol</th><th>Performanță</th><th></th></tr>${postRows}</table></div>`
-        : `<div class="empty">Nicio postare încă. Primul articol nou publicat pe site va apărea aici automat. 🚀</div>`}
-    </div>`, { role: req.role }));
+    ${sites.length === 0 ? `<div class="card empty">🌱 Niciun site încă. Adaugă unul cu butonul „Adaugă site" de sus.</div>` : ""}`, { role: req.role }));
 });
 
 // ---------- adăugare / editare site ----------
@@ -469,6 +396,101 @@ function siteForm(s = {}, isNew = true) {
 
 admin.get("/sites/new", adminOnly, (req, res) => res.send(page("Adaugă site", siteForm({}, true))));
 
+// pagina unui site: acțiunile, statisticile și istoricul LUI
+admin.get("/sites/:slug", async (req, res) => {
+  const s = await getSite(req.params.slug);
+  if (!s) return res.redirect("/admin");
+  const st = await tokenStatus(s);
+  const pageId = s.fb_page_id || "-";
+
+  const { rows: [stats] } = await pool.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE posted_at > NOW() - INTERVAL '24 hours')::int AS last24,
+       COUNT(*) FILTER (WHERE posted_at > NOW() - INTERVAL '7 days')::int AS last7,
+       COUNT(*) FILTER (WHERE posted_at > NOW() - INTERVAL '30 days')::int AS last30,
+       COUNT(*)::int AS total
+     FROM external_fb_posts
+     WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')`,
+    [pageId]
+  );
+
+  const { rows: lastPosts } = await pool.query(
+    `SELECT item_url, fb_post_id, posted_at FROM external_fb_posts
+     WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')
+     ORDER BY posted_at DESC LIMIT 20`,
+    [pageId]
+  );
+
+  // performanța reală, live din Graph API (reacții/comentarii/distribuiri)
+  const engagement = await Promise.all(
+    lastPosts.map((p) => s.fb_access_token ? postEngagement(p.fb_post_id, s.fb_access_token) : null)
+  );
+  const engTotal = engagement.filter(Boolean).reduce(
+    (a, e) => ({ r: a.r + e.reactions, c: a.c + e.comments, s: a.s + e.shares }),
+    { r: 0, c: 0, s: 0 }
+  );
+
+  const tokenBadge =
+    st.state === "ok" ? `<span class="badge ok">✓ Conectat: ${esc(st.pageName)}</span>` :
+    st.state === "invalid" ? `<span class="badge err">✕ Token mort</span>` :
+    st.state === "unconfigured" ? `<span class="badge warn">⚠ Neconectat</span>` :
+    `<span class="badge off">? Graph API indisponibil</span>`;
+  const stateBadge = s.active
+    ? `<span class="badge ok"><span class="dot"></span> Activ</span>`
+    : `<span class="badge off"><span class="dot gray"></span> Pe pauză</span>`;
+  const tokenAlert = st.state === "invalid"
+    ? `<div class="alert err">Tokenul paginii a murit: ${esc((st.message || "").slice(0, 120))}<br>
+       <small>Apasă „Conectează cu Facebook" din bara de sus și releagă pagina — se rezolvă în 30 de secunde.</small></div>`
+    : "";
+
+  const postRows = lastPosts.map((p, i) => {
+    const e = engagement[i];
+    return `<tr>
+    <td class="nowrap muted">${fmtDate(p.posted_at)}</td>
+    <td><a href="${esc(p.item_url)}" target="_blank" class="post-link">${esc(prettyTitle(p.item_url))}</a></td>
+    <td class="nowrap eng">${e ? `👍 ${e.reactions} &nbsp;💬 ${e.comments} &nbsp;↗ ${e.shares}` : `<span class="muted">–</span>`}</td>
+    <td class="nowrap"><a class="btn sm" href="https://www.facebook.com/${esc(p.fb_post_id)}" target="_blank">Vezi pe FB ↗</a></td>
+  </tr>`;
+  }).join("");
+
+  res.send(page(s.name, `
+    <p style="margin-top:16px"><a class="btn sm" href="/admin">← Toate site-urile</a></p>
+    <div class="card site">
+      <div class="site-head">
+        <span class="site-name">${esc(s.name)}</span>
+        ${stateBadge} ${tokenBadge}
+      </div>
+      <div class="site-meta">
+        <span title="Feed">📡 ${esc(s.feed_url)}</span>
+        ${s.exclude_pattern ? `<span title="Filtru de excludere">🚫 exclude: <b>${esc(s.exclude_pattern)}</b></span>` : ""}
+        ${(s.style_prompt || "").trim() ? `<span title="Stil personalizat">✍️ stil personalizat setat</span>` : ""}
+      </div>
+      ${tokenAlert}
+      <div class="site-actions">
+        <form method="post" action="/admin/sites/${esc(s.slug)}/dry-run"><button class="btn">🧪 Test fără postare</button></form>
+        <form method="post" action="/admin/sites/${esc(s.slug)}/run-now" onsubmit="return confirm('Postează ACUM pe Facebook primul articol nepostat de la ${esc(s.name)}. Continui?')"><button class="btn warn">🚀 Postează acum</button></form>
+        <span class="flex-spacer"></span>
+        <a class="btn sm" href="/admin/sites/${esc(s.slug)}/style">✍️ Stil postări</a>
+        ${req.role === "admin" ? `<a class="btn sm" href="/admin/sites/${esc(s.slug)}/edit">⚙️ Setări</a>` : ""}
+        <form method="post" action="/admin/sites/${esc(s.slug)}/check"><button class="btn sm">🔍 Verifică token</button></form>
+        <form method="post" action="/admin/sites/${esc(s.slug)}/toggle"><button class="btn sm">${s.active ? "⏸ Pune pe pauză" : "▶ Pornește"}</button></form>
+      </div>
+    </div>
+    <div class="stats-row">
+      <div class="stat"><div class="stat-n">${stats.last24}</div><div class="stat-l">postări în 24h</div></div>
+      <div class="stat"><div class="stat-n">${stats.last7}</div><div class="stat-l">în ultimele 7 zile</div></div>
+      <div class="stat"><div class="stat-n">${stats.last30}</div><div class="stat-l">în ultimele 30 de zile</div></div>
+      <div class="stat"><div class="stat-n">${stats.total}</div><div class="stat-l">total postări</div></div>
+      <div class="stat accent"><div class="stat-n">${engTotal.r + engTotal.c + engTotal.s}</div><div class="stat-l">interacțiuni la ultimele ${lastPosts.length} postări<br><small>👍 ${engTotal.r} · 💬 ${engTotal.c} · ↗ ${engTotal.s}</small></div></div>
+    </div>
+    <div class="card">
+      <h2>🕘 Postările site-ului</h2>
+      ${postRows
+        ? `<div class="table-scroll"><table><tr><th>Data</th><th>Articol</th><th>Performanță</th><th></th></tr>${postRows}</table></div>`
+        : `<div class="empty">Nicio postare încă. Primul articol nou publicat pe site va apărea aici automat. 🚀</div>`}
+    </div>`, { role: req.role }));
+});
+
 admin.get("/sites/:slug/edit", adminOnly, async (req, res) => {
   const s = await getSite(req.params.slug);
   if (!s) return res.redirect("/admin");
@@ -494,7 +516,7 @@ admin.post("/sites", adminOnly, async (req, res) => {
 admin.post("/sites/:slug/toggle", async (req, res) => {
   const s = await getSite(req.params.slug);
   if (s) await setSiteActive(s.slug, !s.active);
-  res.redirect("/admin");
+  res.redirect(s ? `/admin/sites/${s.slug}` : "/admin");
 });
 
 admin.post("/sites/:slug/delete", adminOnly, async (req, res) => {
@@ -517,7 +539,7 @@ admin.get("/sites/:slug/style", async (req, res) => {
       <p class="muted">Regulile de siguranță rămân mereu active indiferent de indicații: postările nu inventează fapte, nu dau nume de persoane și nu dezvăluie tot conținutul articolului.</p>
       <div class="form-actions">
         <button type="submit" class="btn primary">💾 Salvează stilul</button>
-        <a class="btn" href="/admin">Renunță</a>
+        <a class="btn" href="/admin/sites/${esc(s.slug)}">Renunță</a>
       </div>
     </form>
   </div>`, { role: req.role }));
@@ -531,7 +553,7 @@ admin.post("/sites/:slug/style", async (req, res) => {
       [s.slug, (req.body.style_prompt || "").trim().slice(0, 1000)]
     );
   }
-  res.redirect("/admin");
+  res.redirect(s ? `/admin/sites/${s.slug}` : "/admin");
 });
 
 // ---------- verificare token (Graph API) ----------
@@ -541,7 +563,7 @@ admin.post("/sites/:slug/check", async (req, res) => {
   if (!s) return res.redirect("/admin");
   if (!s.fb_page_id || !s.fb_access_token) {
     return res.send(page("Verificare token", `<div class="card"><h2>🔍 ${esc(s.name)}</h2>
-      <div class="alert err">Page ID sau token lipsă — conectează pagina întâi.</div><a class="btn" href="/admin">← Înapoi</a></div>`));
+      <div class="alert err">Page ID sau token lipsă — conectează pagina întâi.</div><a class="btn" href="/admin/sites/${esc(s.slug)}">← Înapoi</a></div>`));
   }
   let body;
   try {
@@ -557,7 +579,7 @@ admin.post("/sites/:slug/check", async (req, res) => {
   } catch (e) {
     body = `<div class="alert err">Eroare de rețea: ${esc(e.message)}</div>`;
   }
-  res.send(page("Verificare token", `<div class="card"><h2>🔍 ${esc(s.name)}</h2>${body}<a class="btn" href="/admin">← Înapoi</a></div>`));
+  res.send(page("Verificare token", `<div class="card"><h2>🔍 ${esc(s.name)}</h2>${body}<a class="btn" href="/admin/sites/${esc(s.slug)}">← Înapoi</a></div>`));
 });
 
 // ---------- dry-run și postare manuală ----------
@@ -579,7 +601,7 @@ admin.post("/sites/:slug/dry-run", async (req, res) => {
     ${r.skipped ? `<div class="alert warn">Sărit: ${esc(String(r.skipped))}</div>` : ""}
     ${r.error ? `<div class="alert err">${esc(String(r.error))}</div>` : ""}
     ${would || (!r.skipped && !r.error ? `<div class="empty">Niciun articol nou de postat. ✔</div>` : "")}
-    <a class="btn" href="/admin">← Înapoi</a></div>`));
+    <a class="btn" href="/admin/sites/${esc(req.params.slug)}">← Înapoi</a></div>`));
 });
 
 admin.post("/sites/:slug/run-now", async (req, res) => {
@@ -601,7 +623,7 @@ admin.post("/sites/:slug/run-now", async (req, res) => {
   } else {
     body = `<div class="empty">Niciun articol nou de postat. ✔</div>`;
   }
-  res.send(page("Postare manuală", `<div class="card"><h2>🚀 Rezultat</h2>${body}<p></p><a class="btn" href="/admin">← Înapoi</a></div>`));
+  res.send(page("Postare manuală", `<div class="card"><h2>🚀 Rezultat</h2>${body}<p></p><a class="btn" href="/admin/sites/${esc(req.params.slug)}">← Înapoi</a></div>`));
 });
 
 // ---------- helpers ----------
@@ -666,8 +688,12 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
   h2 { font-size: 16px; margin-bottom: 12px; }
   h3 { font-size: 15px; margin-bottom: 6px; }
 
-  .sites-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; margin: 16px 0; }
+  .sites-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin: 16px 0; }
   .sites-grid .card { margin: 0; display: flex; flex-direction: column; }
+  .site-card { text-decoration: none; color: inherit; transition: all .15s; }
+  .site-card:hover { border-color: #2456e6; box-shadow: 0 4px 14px rgba(36,86,230,.15); transform: translateY(-2px); }
+  .site-badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  .site-open { color: #2456e6; font-weight: 700; font-size: 13px; margin-top: 12px; }
   .site-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
   .site-name { font-size: 18px; font-weight: 800; }
   .site-meta { display: flex; gap: 8px 18px; flex-wrap: wrap; color: #6b7280; font-size: 13px; margin-bottom: 4px; }
