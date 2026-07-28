@@ -22,21 +22,37 @@ function safeEqual(a, b) {
 
 // ---------- autentificare (parolă din ADMIN_PASSWORD, cookie semnat) ----------
 
-function cookieToken() {
+// Două niveluri de acces:
+//  - admin (ADMIN_PASSWORD): totul
+//  - client (CLIENT_PASSWORD, opțional): vede dashboardul, poate pune pauză,
+//    testa și posta manual — dar NU poate umbla la setări, tokenuri, site-uri
+function cookieToken(role) {
+  const pass = role === "client" ? process.env.CLIENT_PASSWORD : process.env.ADMIN_PASSWORD;
   return crypto
     .createHmac("sha256", process.env.CRON_SECRET || "no-secret")
-    .update(process.env.ADMIN_PASSWORD || "")
+    .update(`${role}:${pass || ""}`)
     .digest("hex");
 }
 
-function isAuthed(req) {
+function getRole(req) {
   const cookies = Object.fromEntries(
     (req.headers.cookie || "").split(";").map((c) => {
       const i = c.indexOf("=");
       return i === -1 ? [c.trim(), ""] : [c.slice(0, i).trim(), c.slice(i + 1).trim()];
     })
   );
-  return !!process.env.ADMIN_PASSWORD && safeEqual(cookies.adm, cookieToken());
+  if (process.env.ADMIN_PASSWORD && safeEqual(cookies.adm, cookieToken("admin"))) return "admin";
+  if (process.env.CLIENT_PASSWORD && safeEqual(cookies.adm, cookieToken("client"))) return "client";
+  return null;
+}
+
+function adminOnly(req, res, next) {
+  if (req.role !== "admin") {
+    return res.status(403).send(page("Acces restricționat", `<div class="card">
+      <div class="alert warn">Secțiunea asta e disponibilă doar administratorului sistemului.</div>
+      <a class="btn" href="/admin">← Înapoi</a></div>`, { role: req.role }));
+  }
+  next();
 }
 
 // anti brute-force pe login: max 10 încercări eșuate / 15 min / IP
@@ -64,7 +80,8 @@ admin.use((req, res, next) => {
       <p>Setează variabila de mediu <code>ADMIN_PASSWORD</code> în Railway ca să activezi panoul.</p></div>`));
   }
   if (req.path === "/login") return next();
-  if (!isAuthed(req)) return res.redirect("/admin/login");
+  req.role = getRole(req);
+  if (!req.role) return res.redirect("/admin/login");
   next();
 });
 
@@ -90,9 +107,13 @@ admin.post("/login", (req, res) => {
   if (tooManyAttempts(ip)) {
     return res.status(429).send(loginPage("Prea multe încercări. Așteaptă 15 minute."));
   }
-  if (safeEqual(req.body.password, process.env.ADMIN_PASSWORD)) {
+  const role =
+    safeEqual(req.body.password, process.env.ADMIN_PASSWORD) ? "admin" :
+    process.env.CLIENT_PASSWORD && safeEqual(req.body.password, process.env.CLIENT_PASSWORD) ? "client" :
+    null;
+  if (role) {
     loginAttempts.delete(ip);
-    res.setHeader("Set-Cookie", `adm=${cookieToken()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
+    res.setHeader("Set-Cookie", `adm=${cookieToken(role)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
     return res.redirect("/admin");
   }
   recordFailedLogin(ip);
@@ -136,7 +157,7 @@ function oauthState() {
   return crypto.createHmac("sha256", process.env.CRON_SECRET || "no-secret").update("fb-oauth").digest("hex").slice(0, 32);
 }
 
-admin.get("/fb/connect", (req, res) => {
+admin.get("/fb/connect", adminOnly, (req, res) => {
   if (!fbConfigured()) {
     return res.send(page("Conectare Facebook", `<div class="card"><h2>🔗 Conectare cu Facebook</h2>
       <p>Ca butonul să meargă, setează în Railway două variabile din aplicația ta Facebook
@@ -156,7 +177,7 @@ FB_APP_SECRET=App Secret (apasă Show lângă el)</pre>
   res.redirect(url);
 });
 
-admin.get("/fb/callback", async (req, res) => {
+admin.get("/fb/callback", adminOnly, async (req, res) => {
   const back = `<a class="btn" href="/admin">← Înapoi</a>`;
   try {
     if (req.query.error) throw new Error(req.query.error_description || req.query.error);
@@ -221,7 +242,7 @@ admin.get("/fb/callback", async (req, res) => {
   }
 });
 
-admin.post("/fb/assign", async (req, res) => {
+admin.post("/fb/assign", adminOnly, async (req, res) => {
   const entry = pendingPages.get(req.body.key);
   const p = entry?.pages?.[parseInt(req.body.idx, 10)];
   const s = await getSite(req.body.slug);
@@ -315,7 +336,7 @@ admin.get("/", async (req, res) => {
         <form method="post" action="/admin/sites/${esc(s.slug)}/dry-run"><button class="btn">🧪 Test fără postare</button></form>
         <form method="post" action="/admin/sites/${esc(s.slug)}/run-now" onsubmit="return confirm('Postează ACUM pe Facebook primul articol nepostat de la ${esc(s.name)}. Continui?')"><button class="btn warn">🚀 Postează acum</button></form>
         <span class="flex-spacer"></span>
-        <a class="btn sm" href="/admin/sites/${esc(s.slug)}/edit">⚙️ Setări</a>
+        ${req.role === "admin" ? `<a class="btn sm" href="/admin/sites/${esc(s.slug)}/edit">⚙️ Setări</a>` : ""}
         <form method="post" action="/admin/sites/${esc(s.slug)}/check"><button class="btn sm">🔍 Verifică token</button></form>
         <form method="post" action="/admin/sites/${esc(s.slug)}/toggle"><button class="btn sm">${s.active ? "⏸ Pune pe pauză" : "▶ Pornește"}</button></form>
       </div>
@@ -330,6 +351,7 @@ admin.get("/", async (req, res) => {
   </tr>`).join("");
 
   res.send(page("Dashboard", `
+    ${req.role === "client" ? `<div class="alert ok" style="margin-top:16px">👋 Bun venit! De aici vedeți ce postează sistemul și puteți pune pe pauză sau posta manual. Pentru setări tehnice, vorbiți cu administratorul.</div>` : ""}
     ${siteCards.join("")}
     ${sites.length === 0 ? `<div class="card empty">🌱 Niciun site încă. Adaugă unul cu butonul „Adaugă site" de sus.</div>` : ""}
     <div class="card">
@@ -337,7 +359,7 @@ admin.get("/", async (req, res) => {
       ${postRows
         ? `<div class="table-scroll"><table><tr><th>Data</th><th>Site</th><th>Articol</th><th></th></tr>${postRows}</table></div>`
         : `<div class="empty">Nicio postare încă. Primul articol nou publicat pe site va apărea aici automat. 🚀</div>`}
-    </div>`));
+    </div>`, { role: req.role }));
 });
 
 // ---------- adăugare / editare site ----------
@@ -387,15 +409,15 @@ function siteForm(s = {}, isNew = true) {
   </div>`}`;
 }
 
-admin.get("/sites/new", (req, res) => res.send(page("Adaugă site", siteForm({}, true))));
+admin.get("/sites/new", adminOnly, (req, res) => res.send(page("Adaugă site", siteForm({}, true))));
 
-admin.get("/sites/:slug/edit", async (req, res) => {
+admin.get("/sites/:slug/edit", adminOnly, async (req, res) => {
   const s = await getSite(req.params.slug);
   if (!s) return res.redirect("/admin");
   res.send(page("Setări", siteForm(s, false)));
 });
 
-admin.post("/sites", async (req, res) => {
+admin.post("/sites", adminOnly, async (req, res) => {
   const { slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern } = req.body;
   if (!/^[a-z0-9-]+$/.test(slug || "")) {
     return res.status(400).send(page("Eroare", `<div class="card"><div class="alert err">Slug invalid.</div><a class="btn" href="/admin">← Înapoi</a></div>`));
@@ -416,7 +438,7 @@ admin.post("/sites/:slug/toggle", async (req, res) => {
   res.redirect("/admin");
 });
 
-admin.post("/sites/:slug/delete", async (req, res) => {
+admin.post("/sites/:slug/delete", adminOnly, async (req, res) => {
   await deleteSite(req.params.slug);
   res.redirect("/admin");
 });
@@ -503,13 +525,16 @@ function fmtDate(d) {
   }).format(new Date(d));
 }
 
-function page(title, body, { bare = false } = {}) {
+function page(title, body, { bare = false, role = "admin" } = {}) {
+  const adminBtns = role === "admin"
+    ? `<a class="btn ghost" href="/admin/fb/connect">🔗 Conectează cu Facebook</a>
+       <a class="btn ghost" href="/admin/sites/new">➕ Adaugă site</a>`
+    : "";
   const topbar = bare ? "" : `
   <header class="topbar"><div class="topbar-inner">
     <a href="/admin" class="logo">📣 Social Bot</a>
     <span class="flex-spacer"></span>
-    <a class="btn ghost" href="/admin/fb/connect">🔗 Conectează cu Facebook</a>
-    <a class="btn ghost" href="/admin/sites/new">➕ Adaugă site</a>
+    ${adminBtns}
     <a class="btn ghost" href="/admin/logout">Ieși</a>
   </div></header>`;
   return `<!doctype html><html lang="ro"><head><meta charset="utf-8">
