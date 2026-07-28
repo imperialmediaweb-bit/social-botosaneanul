@@ -64,6 +64,7 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
               `- Date calendaristice: menționezi o dată DOAR dacă apare explicit în textul știrii (data unui eveniment). Data publicării NU se menționează — e doar context pentru tine (poți spune „astăzi"/„ieri" doar dacă e clar din text și context).\n` +
               `- INTERZIS: cifre, nume, locuri sau interpretări care NU apar în text.\n` +
               `- Ton faptic de știre — nu comunicat de presă, nu laude, nu limbaj de lemn.\n` +
+              `- INTERZISE urările și comentariile editoriale: „mult succes", „felicitări", „condoleanțe", „ne pare rău", „baftă" etc. — chiar dacă apar în articol, ele NU intră în postare. Ziarul relatează, nu urează. Postarea se termină cu un fapt.\n` +
               `- Dacă textul e sărac în detalii, reformulează doar titlul, fără să adaugi nimic.\n` +
               (special ? `- Postarea începe OBLIGATORIU cu rândul: ${special.label}\n` : "") +
               ((site.style_prompt || "").trim()
@@ -127,7 +128,8 @@ async function verifyCaption(apiKey, sourceText, draft) {
               `1. Verifică fiecare afirmație din propunere împotriva textului. Orice nume, funcție (antrenor/patron/primar...), dată, cifră sau fapt care NU apare explicit în text → elimină sau înlocuiește cu formulare generică susținută de text.\n` +
               `2. Numele persoanelor NU au voie să apară — înlocuiește cu descrieri (vârstă/profesie/localitate) doar dacă apar în text.\n` +
               `3. Scurtează la 1-2 propoziții, maxim 40 de cuvinte (fără rândul cu 📌) — postarea e cârlig, nu rezumat: NU dezvălui deznodământul/detaliul-cheie.\n` +
-              `4. Păstrează diacriticele, emoji-urile potrivite și rândul „📌 Detalii complete în primul comentariu 👇" la final, pe rând separat. Păstrează eticheta de rubrică (🗣️/📷/🎬) dacă există.\n` +
+              `4. ELIMINĂ orice urare sau comentariu editorial („mult succes", „felicitări", „condoleanțe", „baftă") — ziarul relatează fapte, nu urează. Postarea se termină cu un fapt.\n` +
+              `5. Păstrează diacriticele, emoji-urile potrivite și rândul „📌 Detalii complete în primul comentariu 👇" la final, pe rând separat. Păstrează eticheta de rubrică (🗣️/📷/🎬) dacă există.\n` +
               `Răspunzi DOAR cu textul final al postării, nimic altceva.`,
           },
           { role: "user", content: `TEXTUL știrii: ${sourceText}\n\nPROPUNEREA de postare:\n${draft}` },
