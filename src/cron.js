@@ -51,7 +51,7 @@ export async function maybePostStory(site, pageId, token) {
       );
       return "no-image";
     }
-    const img = await composeStoryImage(media.images[0], media.title || site.name, site.name);
+    const img = await composeStoryImage(media.images, media.title || site.name, site.name);
     const posted = await postStoryImageToPage(pageId, token, img);
     await pool.query(
       `UPDATE external_fb_posts SET story_id = $3, story_at = NOW() WHERE page_id = $1 AND item_url = $2`,

@@ -1,3 +1,4 @@
+import "./lib/fontSetup.js"; // OBLIGATORIU primul: fonturile pentru Story-uri
 import express from "express";
 import { ensureSchema } from "./db.js";
 import { runSocialPost } from "./cron.js";
