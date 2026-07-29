@@ -3,7 +3,7 @@ import { getSites } from "./sites.js";
 import { fetchFeedItems } from "./lib/rss.js";
 import { extractGallery } from "./lib/gallery.js";
 import { aiCaption, fallbackCaption } from "./lib/caption.js";
-import { postToPage, postPhotoToPage, postAlbumToPage, commentOnPost } from "./lib/fb.js";
+import { postToPage, postPhotoToPage, postAlbumToPage, commentOnPost, postStoryToPage } from "./lib/fb.js";
 
 const LOCK_NAME = "social-post";
 // max 1 postare / N min / pagină (THROTTLE_MINUTES în env pentru alt ritm)
@@ -12,6 +12,8 @@ const QUARANTINE_MINUTES = 20; // anti ghost-post: fără retry 20 min după ori
 const DRY_RUN_MAX_ITEMS = 5;
 // doar articole proaspete: mai vechi de atât (ore) nu se postează niciodată
 const MAX_ARTICLE_AGE_HOURS = parseInt(process.env.MAX_ARTICLE_AGE_HOURS || "24", 10);
+// Story-uri din postări: max pe zi per pagină (0 = dezactivat)
+const STORIES_PER_DAY = parseInt(process.env.STORIES_PER_DAY || "10", 10);
 
 // Orar de postare (ora României). Default 6→22; pentru NON-STOP setează în
 // env BUSINESS_HOURS_START=0 și BUSINESS_HOURS_END=24.
@@ -219,7 +221,34 @@ async function processSite(site, { force, dry }) {
         [pageId, item.link, fbPostId]
       );
 
-      return { ...out, posted: { title: item.title, link: item.link, fbPostId, photos: gallery.length, comment: commentStatus } };
+      // STORY cu poza principală — max STORIES_PER_DAY pe zi per pagină;
+      // eșecul story-ului nu afectează postarea (best-effort)
+      let storyStatus = "off";
+      if (STORIES_PER_DAY > 0 && gallery.length > 0) {
+        try {
+          const sc = await pool.query(
+            `SELECT COUNT(*)::int AS n FROM external_fb_posts
+             WHERE page_id = $1 AND story_at > NOW() - INTERVAL '24 hours'`,
+            [pageId]
+          );
+          if (sc.rows[0].n < STORIES_PER_DAY) {
+            const st = await postStoryToPage(pageId, token, gallery[0]);
+            await pool.query(
+              `UPDATE external_fb_posts SET story_id = $3, story_at = NOW()
+               WHERE page_id = $1 AND item_url = $2`,
+              [pageId, item.link, st.id]
+            );
+            storyStatus = "ok";
+          } else {
+            storyStatus = "limit";
+          }
+        } catch (e) {
+          storyStatus = e.message;
+          console.error(`story eșuat pe ${fbPostId}:`, e.message);
+        }
+      }
+
+      return { ...out, posted: { title: item.title, link: item.link, fbPostId, photos: gallery.length, comment: commentStatus, story: storyStatus } };
     } catch (e) {
       // NU ștergem claim-ul imediat (anti ghost-post): rămâne în carantină 20 min,
       // apoi cleanup-ul de la începutul rulării îl eliberează pentru retry.

@@ -61,6 +61,21 @@ export async function postAlbumToPage(pageId, accessToken, imageUrls, message, m
   return { post_id: data.id, photo_ids };
 }
 
+// Story de pagină din poza articolului (Stories API: photo_stories).
+// Nota Meta: story-urile foto nu suportă text/link prin API — doar imaginea.
+export async function postStoryToPage(pageId, accessToken, imageUrl) {
+  const photoId = await uploadUnpublishedPhoto(pageId, accessToken, imageUrl);
+  const body = new URLSearchParams();
+  body.set("photo_id", photoId);
+  body.set("access_token", accessToken);
+  const res = await fetch(`${FB_GRAPH}/${pageId}/photo_stories`, { method: "POST", body, cache: "no-store" });
+  const data = await res.json();
+  if (!res.ok || !(data.success || data.post_id || data.id)) {
+    throw new Error(`FB story failed: ${JSON.stringify(data)}`);
+  }
+  return { id: data.post_id || data.id || photoId };
+}
+
 export async function commentOnPost(postId, accessToken, message) {
   const body = new URLSearchParams();
   body.set("message", message);
