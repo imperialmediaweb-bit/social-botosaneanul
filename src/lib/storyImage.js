@@ -60,10 +60,52 @@ async function fetchUsableImage(imageUrls) {
   throw new Error(`nicio poză utilizabilă — ${errors.join(" | ")}`);
 }
 
-// Layout „brand": fundal în albastrul Botoșăneanul (ca în logo), poza
-// articolului ca un card cu colțuri rotunjite, titlul pe alb dedesubt.
-export async function composeStoryImage(imageUrls, title, siteName) {
+// tema vizuală per publicație: culorile fundalului + logo-ul de sus.
+// Botoșăneanul = albastrul din logo; Martor = negru cu text alb.
+// Logo eșuat la descărcare → numele scris ca text.
+export const SITE_THEMES = {
+  botosaneanul: {
+    stops: ["#151f66", "#1d2b7d", "#2e3e9e"],
+    accent: "#8fa3ff",
+    logo: "https://www.botosaneanul.ro/assets/uploads/media-uploader/logo1684429147.png",
+  },
+  "martor-incomod": {
+    stops: ["#000000", "#0d0d0d", "#1e1e1e"],
+    accent: "#bfbfbf",
+    logo: "https://www.botosaneanul.ro/assets/uploads/media-uploader/martor-incomod1769619399.jpg",
+  },
+};
+const DEFAULT_THEME = { stops: ["#151f66", "#1d2b7d", "#2e3e9e"], accent: "#8fa3ff", logo: null };
+
+const logoCache = new Map();
+async function fetchLogo(url) {
+  if (!url) return null;
+  if (logoCache.has(url)) return logoCache.get(url);
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; SocialBot/1.0)" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    // redimensionat la lățime de 460px, păstrând transparența
+    const logo = await sharp(buf).resize({ width: 460 }).png().toBuffer();
+    const meta = await sharp(logo).metadata();
+    const out = { buf: logo, w: meta.width, h: meta.height };
+    logoCache.set(url, out);
+    return out;
+  } catch {
+    logoCache.set(url, null);
+    return null;
+  }
+}
+
+// Layout „brand": fundalul în culorile publicației, logo-ul sus, poza
+// articolului ca un card rotunjit, titlul pe alb dedesubt.
+export async function composeStoryImage(imageUrls, title, siteName, slug = "") {
+  const theme = SITE_THEMES[slug] || DEFAULT_THEME;
   const src = await fetchUsableImage(imageUrls);
+  const logo = await fetchLogo(theme.logo);
 
   // cardul cu poza: 940×1050, colțuri rotunjite
   const PW = 940;
@@ -93,20 +135,29 @@ export async function composeStoryImage(imageUrls, title, siteName) {
   const svg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#151f66"/>
-        <stop offset="55%" stop-color="#1d2b7d"/>
-        <stop offset="100%" stop-color="#2e3e9e"/>
+        <stop offset="0%" stop-color="${theme.stops[0]}"/>
+        <stop offset="55%" stop-color="${theme.stops[1]}"/>
+        <stop offset="100%" stop-color="${theme.stops[2]}"/>
       </linearGradient>
     </defs>
     <rect width="100%" height="100%" fill="url(#bg)"/>
-    <text x="${W / 2}" y="165" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="46" font-weight="bold" fill="#ffffff" letter-spacing="4">${escXml(String(siteName || "").toUpperCase())}</text>
-    <rect x="${W / 2 - 70}" y="192" width="140" height="7" fill="#8fa3ff"/>
+    ${logo ? "" : `<text x="${W / 2}" y="165" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="46" font-weight="bold" fill="#ffffff" letter-spacing="4">${escXml(String(siteName || "").toUpperCase())}</text>
+    <rect x="${W / 2 - 70}" y="192" width="140" height="7" fill="${theme.accent}"/>`}
     ${tspans}
-    <text x="${W / 2}" y="${H - 90}" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="30" fill="#8fa3ff">▲ Detalii complete pe site</text>
+    <text x="${W / 2}" y="${H - 90}" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="30" fill="${theme.accent}">▲ Detalii complete pe site</text>
   </svg>`;
 
+  const layers = [{ input: roundedPhoto, top: photoTop, left: photoLeft }];
+  if (logo) {
+    layers.push({
+      input: logo.buf,
+      top: Math.max(60, Math.round(155 - logo.h / 2)),
+      left: Math.round((W - logo.w) / 2),
+    });
+  }
+
   return sharp(Buffer.from(svg))
-    .composite([{ input: roundedPhoto, top: photoTop, left: photoLeft }])
+    .composite(layers)
     .jpeg({ quality: 88 })
     .toBuffer();
 }

@@ -544,7 +544,7 @@ admin.post("/sites/:slug/story", async (req, res) => {
     const { composeStoryImage } = await import("./lib/storyImage.js");
     const media = await extractGallery(itemUrl, "", "");
     if (media.images.length === 0) throw new Error("nu am găsit nicio poză utilizabilă în articol");
-    const img = await composeStoryImage(media.images, media.title || s.name, s.name);
+    const img = await composeStoryImage(media.images, media.title || s.name, s.name, s.slug);
     const st = await postStoryImageToPage(s.fb_page_id, s.fb_access_token, img);
     await pool.query(
       `UPDATE external_fb_posts SET story_id = $3, story_at = NOW() WHERE page_id = $1 AND item_url = $2`,
