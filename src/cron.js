@@ -3,7 +3,8 @@ import { getSites } from "./sites.js";
 import { fetchFeedItems } from "./lib/rss.js";
 import { extractGallery } from "./lib/gallery.js";
 import { aiCaption, fallbackCaption } from "./lib/caption.js";
-import { postToPage, postPhotoToPage, postAlbumToPage, commentOnPost, postStoryToPage } from "./lib/fb.js";
+import { postToPage, postPhotoToPage, postAlbumToPage, commentOnPost, postStoryImageToPage } from "./lib/fb.js";
+import { composeStoryImage } from "./lib/storyImage.js";
 
 const LOCK_NAME = "social-post";
 // max 1 postare / N min / pagină (THROTTLE_MINUTES în env pentru alt ritm)
@@ -12,8 +13,56 @@ const QUARANTINE_MINUTES = 20; // anti ghost-post: fără retry 20 min după ori
 const DRY_RUN_MAX_ITEMS = 5;
 // doar articole proaspete: mai vechi de atât (ore) nu se postează niciodată
 const MAX_ARTICLE_AGE_HOURS = parseInt(process.env.MAX_ARTICLE_AGE_HOURS || "24", 10);
-// Story-uri din postări: max pe zi per pagină (0 = dezactivat)
+// Story-uri: max pe zi per pagină, ÎNTINSE pe toată ziua (unul la
+// STORY_INTERVAL_MINUTES), din articolele deja postate care n-au Story încă
 const STORIES_PER_DAY = parseInt(process.env.STORIES_PER_DAY || "10", 10);
+const STORY_INTERVAL_MINUTES = parseInt(process.env.STORY_INTERVAL_MINUTES || "90", 10);
+
+// Publică un Story cu poză + titlu pe ea, dacă site-ul are Story automat
+// pornit, nu s-a atins limita zilnică și a trecut intervalul de la ultimul.
+// Best-effort: orice eroare doar se raportează, nu oprește postările.
+export async function maybePostStory(site, pageId, token) {
+  if (STORIES_PER_DAY <= 0 || site.stories_enabled === false) return "off";
+  try {
+    const { rows: [st] } = await pool.query(
+      `SELECT COUNT(*)::int AS n, MAX(story_at) AS last FROM external_fb_posts
+       WHERE page_id = $1 AND story_at > NOW() - INTERVAL '24 hours'`,
+      [pageId]
+    );
+    if (st.n >= STORIES_PER_DAY) return "limit";
+    if (st.last && Date.now() - new Date(st.last).getTime() < STORY_INTERVAL_MINUTES * 60 * 1000) return "wait";
+
+    // cel mai vechi articol postat în ultimele 24h care n-are Story încă
+    const { rows: [cand] } = await pool.query(
+      `SELECT item_url FROM external_fb_posts
+       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')
+         AND story_id IS NULL AND posted_at > NOW() - INTERVAL '24 hours'
+       ORDER BY posted_at ASC LIMIT 1`,
+      [pageId]
+    );
+    if (!cand) return "none";
+
+    const media = await extractGallery(cand.item_url, "", "");
+    if (media.images.length === 0) {
+      // fără poze utilizabile → marcăm ca sărit, să nu-l reîncercăm la nesfârșit
+      await pool.query(
+        `UPDATE external_fb_posts SET story_id = 'skipped' WHERE page_id = $1 AND item_url = $2`,
+        [pageId, cand.item_url]
+      );
+      return "no-image";
+    }
+    const img = await composeStoryImage(media.images[0], media.title || site.name, site.name);
+    const posted = await postStoryImageToPage(pageId, token, img);
+    await pool.query(
+      `UPDATE external_fb_posts SET story_id = $3, story_at = NOW() WHERE page_id = $1 AND item_url = $2`,
+      [pageId, cand.item_url, posted.id]
+    );
+    return "ok";
+  } catch (e) {
+    console.error(`story eșuat pentru ${site.slug}:`, e.message);
+    return e.message;
+  }
+}
 
 // Orar de postare (ora României). Default 6→22; pentru NON-STOP setează în
 // env BUSINESS_HOURS_START=0 și BUSINESS_HOURS_END=24.
@@ -86,6 +135,11 @@ async function processSite(site, { force, dry }) {
        AND posted_at < NOW() - make_interval(mins => $2)`,
     [pageId, QUARANTINE_MINUTES]
   );
+
+  // Story-urile merg pe programul lor (întinse pe zi), independent de postări
+  if (!dry) {
+    out.story = await maybePostStory(site, pageId, token);
+  }
 
   // Throttle per pagină (force=1 sare peste; dry nu postează, deci nu contează)
   if (!force && !dry) {
@@ -221,34 +275,7 @@ async function processSite(site, { force, dry }) {
         [pageId, item.link, fbPostId]
       );
 
-      // STORY cu poza principală — max STORIES_PER_DAY pe zi per pagină;
-      // eșecul story-ului nu afectează postarea (best-effort)
-      let storyStatus = "off";
-      if (STORIES_PER_DAY > 0 && site.stories_enabled !== false && gallery.length > 0) {
-        try {
-          const sc = await pool.query(
-            `SELECT COUNT(*)::int AS n FROM external_fb_posts
-             WHERE page_id = $1 AND story_at > NOW() - INTERVAL '24 hours'`,
-            [pageId]
-          );
-          if (sc.rows[0].n < STORIES_PER_DAY) {
-            const st = await postStoryToPage(pageId, token, gallery[0]);
-            await pool.query(
-              `UPDATE external_fb_posts SET story_id = $3, story_at = NOW()
-               WHERE page_id = $1 AND item_url = $2`,
-              [pageId, item.link, st.id]
-            );
-            storyStatus = "ok";
-          } else {
-            storyStatus = "limit";
-          }
-        } catch (e) {
-          storyStatus = e.message;
-          console.error(`story eșuat pe ${fbPostId}:`, e.message);
-        }
-      }
-
-      return { ...out, posted: { title: item.title, link: item.link, fbPostId, photos: gallery.length, comment: commentStatus, story: storyStatus } };
+      return { ...out, posted: { title: item.title, link: item.link, fbPostId, photos: gallery.length, comment: commentStatus } };
     } catch (e) {
       // NU ștergem claim-ul imediat (anti ghost-post): rămâne în carantină 20 min,
       // apoi cleanup-ul de la începutul rulării îl eliberează pentru retry.

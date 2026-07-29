@@ -61,19 +61,26 @@ export async function postAlbumToPage(pageId, accessToken, imageUrls, message, m
   return { post_id: data.id, photo_ids };
 }
 
-// Story de pagină din poza articolului (Stories API: photo_stories).
-// Nota Meta: story-urile foto nu suportă text/link prin API — doar imaginea.
-export async function postStoryToPage(pageId, accessToken, imageUrl) {
-  const photoId = await uploadUnpublishedPhoto(pageId, accessToken, imageUrl);
+// Story de pagină dintr-o imagine COMPUSĂ local (buffer JPEG cu titlul pe ea).
+// Upload prin multipart (source), apoi photo_stories.
+export async function postStoryImageToPage(pageId, accessToken, jpegBuffer) {
+  const form = new FormData();
+  form.append("published", "false");
+  form.append("access_token", accessToken);
+  form.append("source", new Blob([jpegBuffer], { type: "image/jpeg" }), "story.jpg");
+  const up = await fetch(`${FB_GRAPH}/${pageId}/photos`, { method: "POST", body: form, cache: "no-store" });
+  const photo = await up.json();
+  if (!up.ok || !photo.id) throw new Error(`FB story upload failed: ${JSON.stringify(photo)}`);
+
   const body = new URLSearchParams();
-  body.set("photo_id", photoId);
+  body.set("photo_id", photo.id);
   body.set("access_token", accessToken);
   const res = await fetch(`${FB_GRAPH}/${pageId}/photo_stories`, { method: "POST", body, cache: "no-store" });
   const data = await res.json();
   if (!res.ok || !(data.success || data.post_id || data.id)) {
     throw new Error(`FB story failed: ${JSON.stringify(data)}`);
   }
-  return { id: data.post_id || data.id || photoId };
+  return { id: data.post_id || data.id || photo.id };
 }
 
 export async function commentOnPost(postId, accessToken, message) {

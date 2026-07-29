@@ -27,6 +27,7 @@ const IMG_EXT = /\.(jpe?g|png|webp|gif)(\?|$)/i;
 export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "") {
   const urls = [];
   let articleText = "";
+  let articleTitle = "";
   let siteDomain = "";
   try {
     const parts = new URL(articleUrl).hostname.split(".");
@@ -106,10 +107,12 @@ export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "")
     if (res.ok) {
       const html = await res.text();
 
-      // 3) og:image — poza oficială a articolului
+      // 3) og:image — poza oficială a articolului (+ og:title pentru Story)
       const og = /<meta[^>]+property=["']og:image(?::url)?["'][^>]+content=["']([^"']+)["']/i.exec(html)
         || /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::url)?["']/i.exec(html);
       if (og) pushTrusted(og[1]);
+      const ogTitle = /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i.exec(html);
+      if (ogTitle) articleTitle = decodeEntities(ogTitle[1]);
 
       // 4) JSON-LD: imaginile declarate ale articolului (nu author/logo)
       //    + textul integral al articolului (articleBody)
@@ -160,6 +163,7 @@ export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "")
   return {
     images: dedupeSizeVariants(urls).slice(0, 10), // limita album FB
     text: articleText,
+    title: articleTitle,
   };
 }
 

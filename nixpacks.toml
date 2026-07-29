@@ -1,0 +1,4 @@
+# Fonturi pentru textul de pe imaginile de Story (sharp/librsvg are nevoie
+# de fonturi instalate ca să randeze titlurile cu diacritice)
+[phases.setup]
+aptPkgs = ["fonts-dejavu-core", "fontconfig"]
