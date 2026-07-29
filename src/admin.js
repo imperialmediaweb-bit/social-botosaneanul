@@ -415,7 +415,7 @@ admin.get("/sites/:slug", async (req, res) => {
   );
 
   const { rows: lastPosts } = await pool.query(
-    `SELECT item_url, fb_post_id, posted_at FROM external_fb_posts
+    `SELECT item_url, fb_post_id, posted_at, story_id FROM external_fb_posts
      WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')
      ORDER BY posted_at DESC LIMIT 20`,
     [pageId]
@@ -445,10 +445,17 @@ admin.get("/sites/:slug", async (req, res) => {
 
   const postRows = lastPosts.map((p, i) => {
     const e = engagement[i];
+    const storyBtn = p.story_id
+      ? `<span class="badge ok" title="Story publicat">📱 ✓</span>`
+      : `<form method="post" action="/admin/sites/${esc(s.slug)}/story" style="display:inline">
+           <input type="hidden" name="item_url" value="${esc(p.item_url)}">
+           <button class="btn sm" title="Publică un Story cu poza articolului">📱 Fă Story</button>
+         </form>`;
     return `<tr>
     <td class="nowrap muted">${fmtDate(p.posted_at)}</td>
     <td><a href="${esc(p.item_url)}" target="_blank" class="post-link">${esc(prettyTitle(p.item_url))}</a></td>
     <td class="nowrap eng">${e ? `👍 ${e.reactions} &nbsp;💬 ${e.comments} &nbsp;↗ ${e.shares}` : `<span class="muted">–</span>`}</td>
+    <td class="nowrap">${storyBtn}</td>
     <td class="nowrap"><a class="btn sm" href="https://www.facebook.com/${esc(p.fb_post_id)}" target="_blank">Vezi pe FB ↗</a></td>
   </tr>`;
   }).join("");
@@ -473,6 +480,7 @@ admin.get("/sites/:slug", async (req, res) => {
         <a class="btn sm" href="/admin/sites/${esc(s.slug)}/style">✍️ Stil postări</a>
         ${req.role === "admin" ? `<a class="btn sm" href="/admin/sites/${esc(s.slug)}/edit">⚙️ Setări</a>` : ""}
         <form method="post" action="/admin/sites/${esc(s.slug)}/check"><button class="btn sm">🔍 Verifică token</button></form>
+        <form method="post" action="/admin/sites/${esc(s.slug)}/stories-toggle"><button class="btn sm">${s.stories_enabled !== false ? "📱 Story automat: PORNIT" : "📱 Story automat: OPRIT"}</button></form>
         <form method="post" action="/admin/sites/${esc(s.slug)}/toggle"><button class="btn sm">${s.active ? "⏸ Pune pe pauză" : "▶ Pornește"}</button></form>
       </div>
     </div>
@@ -486,7 +494,7 @@ admin.get("/sites/:slug", async (req, res) => {
     <div class="card">
       <h2>🕘 Postările site-ului</h2>
       ${postRows
-        ? `<div class="table-scroll"><table><tr><th>Data</th><th>Articol</th><th>Performanță</th><th></th></tr>${postRows}</table></div>`
+        ? `<div class="table-scroll"><table><tr><th>Data</th><th>Articol</th><th>Performanță</th><th>Story</th><th></th></tr>${postRows}</table></div>`
         : `<div class="empty">Nicio postare încă. Primul articol nou publicat pe site va apărea aici automat. 🚀</div>`}
     </div>`, { role: req.role }));
 });
@@ -511,6 +519,41 @@ admin.post("/sites", adminOnly, async (req, res) => {
     style_prompt: (style_prompt || "").trim().slice(0, 1000),
   });
   res.redirect("/admin");
+});
+
+// pornire/oprire Story-uri automate per site
+admin.post("/sites/:slug/stories-toggle", async (req, res) => {
+  const s = await getSite(req.params.slug);
+  if (s) {
+    await pool.query(`UPDATE sites SET stories_enabled = NOT stories_enabled, updated_at = NOW() WHERE slug = $1`, [s.slug]);
+  }
+  res.redirect(s ? `/admin/sites/${s.slug}` : "/admin");
+});
+
+// Story manual dintr-o postare existentă (poza principală a articolului)
+admin.post("/sites/:slug/story", async (req, res) => {
+  const s = await getSite(req.params.slug);
+  const itemUrl = req.body.item_url || "";
+  const back = s ? `<a class="btn" href="/admin/sites/${esc(s.slug)}">← Înapoi</a>` : `<a class="btn" href="/admin">← Înapoi</a>`;
+  if (!s || !s.fb_page_id || !s.fb_access_token || !itemUrl) {
+    return res.send(page("Story", `<div class="card"><div class="alert err">Site neconectat sau articol lipsă.</div>${back}</div>`));
+  }
+  try {
+    const { extractGallery } = await import("./lib/gallery.js");
+    const { postStoryToPage } = await import("./lib/fb.js");
+    const media = await extractGallery(itemUrl, "", "");
+    if (media.images.length === 0) throw new Error("nu am găsit nicio poză utilizabilă în articol");
+    const st = await postStoryToPage(s.fb_page_id, s.fb_access_token, media.images[0]);
+    await pool.query(
+      `UPDATE external_fb_posts SET story_id = $3, story_at = NOW() WHERE page_id = $1 AND item_url = $2`,
+      [s.fb_page_id, itemUrl, st.id]
+    );
+    res.send(page("Story", `<div class="card"><h2>📱 Story publicat</h2>
+      <div class="alert ok">✓ Story-ul cu poza articolului a fost publicat pe pagina ${esc(s.name)}.</div>${back}</div>`));
+  } catch (e) {
+    res.send(page("Story", `<div class="card"><h2>📱 Story</h2>
+      <div class="alert err">Eroare: ${esc(e.message.slice(0, 200))}</div>${back}</div>`));
+  }
 });
 
 admin.post("/sites/:slug/toggle", async (req, res) => {

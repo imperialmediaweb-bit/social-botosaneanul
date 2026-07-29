@@ -224,7 +224,7 @@ async function processSite(site, { force, dry }) {
       // STORY cu poza principală — max STORIES_PER_DAY pe zi per pagină;
       // eșecul story-ului nu afectează postarea (best-effort)
       let storyStatus = "off";
-      if (STORIES_PER_DAY > 0 && gallery.length > 0) {
+      if (STORIES_PER_DAY > 0 && site.stories_enabled !== false && gallery.length > 0) {
         try {
           const sc = await pool.query(
             `SELECT COUNT(*)::int AS n FROM external_fb_posts

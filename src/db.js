@@ -39,6 +39,7 @@ export async function ensureSchema() {
     ALTER TABLE sites ADD COLUMN IF NOT EXISTS style_prompt TEXT NOT NULL DEFAULT '';
     ALTER TABLE external_fb_posts ADD COLUMN IF NOT EXISTS story_id TEXT;
     ALTER TABLE external_fb_posts ADD COLUMN IF NOT EXISTS story_at TIMESTAMP;
+    ALTER TABLE sites ADD COLUMN IF NOT EXISTS stories_enabled BOOLEAN NOT NULL DEFAULT TRUE;
   `);
 }
 
