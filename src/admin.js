@@ -572,7 +572,7 @@ admin.post("/sites/:slug/delete", adminOnly, async (req, res) => {
 // ---------- stilul postărilor (accesibil și clientului) ----------
 
 const STYLE_PRESETS = [
-  { label: "Scurt și percutant", text: "Postări scurte: maxim 2 propoziții. Un singur emoji, bine ales. Cârlig puternic în prima propoziție." },
+  { label: "⭐ Scurt și percutant (recomandat)", text: "Postări scurte: maxim 2 propoziții. Un singur emoji, bine ales. Cârlig puternic în prima propoziție." },
   { label: "Ton serios de presă", text: "Ton jurnalistic sobru. Fără emoji, fără exclamații. Strict faptic, propoziții clare și scurte." },
   { label: "Detaliat", text: "Postări mai lungi: 3-4 propoziții cu context și detalii esențiale. Un emoji potrivit subiectului." },
   { label: "Energic", text: "Ritm alert, formulări energice, 2-3 emoji expresive. Fără exagerări și fără clickbait." },
@@ -588,6 +588,7 @@ admin.get("/sites/:slug/style", async (req, res) => {
   ).join(" ");
   res.send(page("Stilul postărilor", `<div class="card form-card">
     <h2>✍️ Stilul postărilor — ${esc(s.name)}</h2>
+    <div class="alert ok">💡 <b>Recomandarea noastră pentru reach:</b> stilul „Scurt și percutant" — 1-2 propoziții care stârnesc curiozitatea, fără să dea tot conținutul. Postările scurte cu cârlig aduc cele mai multe click-uri pe articol. Varianta „titlul original" (bifa de mai jos) e potrivită pentru perioade de test sau dacă preferați controlul total al redacției.</div>
     <form method="post" action="/admin/sites/${esc(s.slug)}/style">
       <label class="check-row">
         <input type="checkbox" name="use_original_title" value="1" ${s.use_original_title ? "checked" : ""}>
