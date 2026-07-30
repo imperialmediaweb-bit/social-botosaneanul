@@ -231,9 +231,10 @@ async function processSite(site, { force, dry }) {
     const gallery = media.images;
     // textul REAL al articolului (de pe pagină) e sursa captionului; feed-ul
     // e doar fallback — rezumatele sărace duc la halucinații AI
-    // bifa „Folosește titlul original" → fără AI, postarea e titlul articolului
+    // bifa „Folosește titlul original" → postarea e DOAR titlul articolului,
+    // fără rândul cu 📌 și fără etichete — nimic altceva
     const caption = site.use_original_title
-      ? fallbackCaption(item.title)
+      ? item.title
       : (await aiCaption(site, item.title, media.text || item.contentEncoded || item.description, item.publishedAt)) ||
         fallbackCaption(item.title);
 

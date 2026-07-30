@@ -592,7 +592,7 @@ admin.get("/sites/:slug/style", async (req, res) => {
       <label class="check-row">
         <input type="checkbox" name="use_original_title" value="1" ${s.use_original_title ? "checked" : ""}>
         <span><b>Folosește titlul original al articolului</b><br>
-        <small class="muted">Postarea va fi exact titlul de pe site + „Detalii complete în primul comentariu", fără text scris de AI. Bifați dacă preferați titlurile redacției.</small></span>
+        <small class="muted">Postarea va fi DOAR titlul de pe site — fără text AI, fără alte formulări. Linkul articolului se pune în continuare în primul comentariu.</small></span>
       </label>
       <label>Indicații de stil pentru AI <small>(se respectă LA LITERĂ; se aplică doar când bifa de mai sus e debifată)</small></label>
       <textarea name="style_prompt" rows="5" placeholder="ex: Ton jurnalistic sobru. Două propoziții. Fără emoji la subiectele grave.">${esc(s.style_prompt || "")}</textarea>
