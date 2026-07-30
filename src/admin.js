@@ -588,7 +588,13 @@ admin.get("/sites/:slug/style", async (req, res) => {
   ).join(" ");
   res.send(page("Stilul postărilor", `<div class="card form-card">
     <h2>✍️ Stilul postărilor — ${esc(s.name)}</h2>
-    <div class="alert ok">💡 <b>Recomandarea noastră pentru reach:</b> stilul „Scurt și percutant" — 1-2 propoziții care stârnesc curiozitatea, fără să dea tot conținutul. Postările scurte cu cârlig aduc cele mai multe click-uri pe articol. Varianta „titlul original" (bifa de mai jos) e potrivită pentru perioade de test sau dacă preferați controlul total al redacției.</div>
+    <div class="alert ok">💡 <b>Recomandarea noastră pentru reach:</b> stilul „Scurt și percutant" — 1-2 propoziții care stârnesc curiozitatea, fără să dea tot conținutul; postările scurte cu cârlig aduc cele mai multe click-uri pe articol. Varianta „titlul original" (bifa de mai jos) e potrivită pentru perioade de test sau control total al redacției.</div>
+    <div class="alert warn">📘 <b>Regulile algoritmului Facebook, pe care sistemul le respectă automat:</b><br>
+      • linkurile în postare sunt declasate → linkul se pune în <b>primul comentariu</b>;<br>
+      • <b>clickbait-ul</b> („nu o să crezi...", „șocant") și <b>engagement bait-ul</b> („dați like", „voi ce părere aveți?") sunt detectate și penalizate → interzise în texte;<br>
+      • postările înghesuite își taie reach-ul una alteia → maxim <b>o postare la 15 minute</b>;<br>
+      • pozele încărcate direct (album) primesc reach mai bun decât link-preview-urile;<br>
+      • <b>primele 30-60 de minute decid</b>: dacă postarea primește reacții și comentarii repede, algoritmul o împinge mai departe — aici ajută enorm ca cineva din redacție să interacționeze cu postările proaspete.</div>
     <form method="post" action="/admin/sites/${esc(s.slug)}/style">
       <label class="check-row">
         <input type="checkbox" name="use_original_title" value="1" ${s.use_original_title ? "checked" : ""}>
