@@ -606,7 +606,7 @@ admin.get("/sites/:slug/style", async (req, res) => {
       <summary>💡 Recomandare și reguli Facebook</summary>
       <p><b>Recomandat pentru reach:</b> „Scurt și percutant" — 1-2 propoziții cu cârlig, fără să dea tot conținutul. „Titlul original" e potrivit pentru teste sau control total al redacției.</p>
       <p><b>Reguli pe care sistemul le respectă automat, orice ați scrie mai sus:</b> linkul doar în primul comentariu · fără clickbait și engagement bait · maxim o postare la 15 minute · poze ca album nativ · fără fapte inventate sau declarații interpretate.</p>
-      <p><b>Sfat:</b> primele 30-60 de minute decid reach-ul — o reacție sau un comentariu de la cineva din redacție imediat după postare ajută mult.</p>
+      <p><b>Sfat important:</b> primele 30-60 de minute decid reach-ul unei postări. Cel puțin o persoană din redacție ar trebui să dea like (și, ideal, un comentariu) la postările proaspete <b>de pe profilul personal</b> — nu de pe pagină (like-ul paginii la propria postare nu contează pentru algoritm). 10 secunde per postare, efect real asupra reach-ului.</p>
     </details>
   </div>
   <script>
