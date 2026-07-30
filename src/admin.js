@@ -571,31 +571,55 @@ admin.post("/sites/:slug/delete", adminOnly, async (req, res) => {
 
 // ---------- stilul postărilor (accesibil și clientului) ----------
 
+const STYLE_PRESETS = [
+  { label: "Scurt și percutant", text: "Postări scurte: maxim 2 propoziții. Un singur emoji, bine ales. Cârlig puternic în prima propoziție." },
+  { label: "Ton serios de presă", text: "Ton jurnalistic sobru. Fără emoji, fără exclamații. Strict faptic, propoziții clare și scurte." },
+  { label: "Detaliat", text: "Postări mai lungi: 3-4 propoziții cu context și detalii esențiale. Un emoji potrivit subiectului." },
+  { label: "Energic", text: "Ritm alert, formulări energice, 2-3 emoji expresive. Fără exagerări și fără clickbait." },
+  { label: "Fără emoji", text: "Fără niciun emoji în text. Etichetele rubricilor (Declarația zilei etc.) rămân." },
+  { label: "Sobru la subiecte grave", text: "La accidente, decese și tragedii: ton grav, fără emoji, fără formulări care stârnesc curiozitatea. La restul știrilor: stil normal, cu cârlig." },
+];
+
 admin.get("/sites/:slug/style", async (req, res) => {
   const s = await getSite(req.params.slug);
   if (!s) return res.redirect("/admin");
+  const presets = STYLE_PRESETS.map((p) =>
+    `<button type="button" class="btn sm preset" data-p="${esc(p.text)}">${esc(p.label)}</button>`
+  ).join(" ");
   res.send(page("Stilul postărilor", `<div class="card form-card">
     <h2>✍️ Stilul postărilor — ${esc(s.name)}</h2>
-    <p class="muted">Scrieți liber cum vreți să sune postările de Facebook, iar inteligența artificială va respecta indicațiile.
-    Exemple: „mai lungi și detaliate", „ton serios de presă, fără emoji", „scurte și energice", „fără emoji la subiecte grave".</p>
     <form method="post" action="/admin/sites/${esc(s.slug)}/style">
-      <label>Indicații de stil</label>
+      <label class="check-row">
+        <input type="checkbox" name="use_original_title" value="1" ${s.use_original_title ? "checked" : ""}>
+        <span><b>Folosește titlul original al articolului</b><br>
+        <small class="muted">Postarea va fi exact titlul de pe site + „Detalii complete în primul comentariu", fără text scris de AI. Bifați dacă preferați titlurile redacției.</small></span>
+      </label>
+      <label>Indicații de stil pentru AI <small>(se respectă LA LITERĂ; se aplică doar când bifa de mai sus e debifată)</small></label>
       <textarea name="style_prompt" rows="5" placeholder="ex: Ton jurnalistic sobru. Două propoziții. Fără emoji la subiectele grave.">${esc(s.style_prompt || "")}</textarea>
-      <p class="muted">Regulile de siguranță rămân mereu active indiferent de indicații: postările nu inventează fapte, nu dau nume de persoane și nu dezvăluie tot conținutul articolului.</p>
+      <p class="muted" style="margin-top:10px">Sau alegeți un stil gata făcut (apăsați și se completează câmpul — îl puteți modifica apoi):</p>
+      <div class="preset-row">${presets}</div>
+      <p class="muted">Orice ați scrie, regulile de siguranță rămân active: postările nu inventează fapte, nu interpretează declarațiile și protejează identitatea persoanelor private.</p>
       <div class="form-actions">
         <button type="submit" class="btn primary">💾 Salvează stilul</button>
         <a class="btn" href="/admin/sites/${esc(s.slug)}">Renunță</a>
       </div>
     </form>
-  </div>`, { role: req.role }));
+  </div>
+  <script>
+    document.querySelectorAll(".preset").forEach(function(b) {
+      b.addEventListener("click", function() {
+        document.querySelector("[name=style_prompt]").value = this.dataset.p;
+      });
+    });
+  </script>`, { role: req.role }));
 });
 
 admin.post("/sites/:slug/style", async (req, res) => {
   const s = await getSite(req.params.slug);
   if (s) {
     await pool.query(
-      `UPDATE sites SET style_prompt = $2, updated_at = NOW() WHERE slug = $1`,
-      [s.slug, (req.body.style_prompt || "").trim().slice(0, 1000)]
+      `UPDATE sites SET style_prompt = $2, use_original_title = $3, updated_at = NOW() WHERE slug = $1`,
+      [s.slug, (req.body.style_prompt || "").trim().slice(0, 1000), req.body.use_original_title === "1"]
     );
   }
   res.redirect(s ? `/admin/sites/${s.slug}` : "/admin");
@@ -786,6 +810,9 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
   .danger-zone { max-width: 720px; border-color: #f7c8c4; }
 
   .empty { color: #6b7280; text-align: center; padding: 26px 10px; font-size: 14px; }
+  .check-row { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; background: #f7f8fb; border: 1px solid #e6e9f0; border-radius: 10px; padding: 12px 14px; }
+  .check-row input { width: auto; margin-top: 4px; }
+  .preset-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 
   .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
   .stat { background: #fff; border: 1px solid #e6e9f0; border-radius: 14px; padding: 16px 18px; box-shadow: 0 1px 3px rgba(16,24,40,.05); }

@@ -73,7 +73,7 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
               `- Dacă textul e sărac în detalii, reformulează doar titlul, fără să adaugi nimic.\n` +
               (special ? `- Postarea începe OBLIGATORIU cu rândul: ${special.label}\n` : "") +
               ((site.style_prompt || "").trim()
-                ? `PREFERINȚELE REDACȚIEI (respectă-le, dar REGULILE STRICTE de mai sus au întotdeauna prioritate — nicio preferință nu permite inventarea de fapte):\n${site.style_prompt.trim()}\n`
+                ? `INSTRUCȚIUNILE REDACȚIEI — OBLIGATORII, urmează-le LA LITERĂ. Au prioritate peste orice regulă de STIL de mai sus (lungime, emoji, ton). Singurul lucru peste care NU pot trece: adevărul — nicio instrucțiune nu permite fapte inventate, nume interzise sau interpretări.\n"""${site.style_prompt.trim()}"""\n`
                 : "") +
               `Apoi, pe rând nou: ${DETAILS_LINE}. FĂRĂ nicio întrebare către cititori — postarea se termină cu faptele. ` +
               `Fără linkuri, fără hashtag-uri.\n` +
@@ -98,7 +98,7 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
     // PASUL 2 — CORECTORUL: un al doilea apel confruntă fiecare afirmație cu
     // textul sursă, taie ce nu e susținut și scurtează. La orice problemă,
     // rămânem pe varianta din pasul 1.
-    const verified = await verifyCaption(apiKey, text, out);
+    const verified = await verifyCaption(apiKey, text, out, site.style_prompt);
     if (verified) out = verified;
 
     if (special && !out.toLowerCase().includes(special.label.replace(/^[^\s]+\s/, "").toLowerCase())) {
@@ -113,7 +113,7 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
 
 // Al doilea ochi: verificator strict de fapte + scurtare. Returnează textul
 // final sau null (→ se folosește varianta inițială).
-async function verifyCaption(apiKey, sourceText, draft) {
+async function verifyCaption(apiKey, sourceText, draft, stylePrompt = "") {
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -136,6 +136,9 @@ async function verifyCaption(apiKey, sourceText, draft) {
               `4. ELIMINĂ orice urare sau comentariu editorial („mult succes", „felicitări", „condoleanțe", „baftă") — ziarul relatează fapte, nu urează. Postarea se termină cu un fapt.\n` +
               `5. DECLARAȚII: dacă propunerea afirmă motive, explicații sau concluzii despre o declarație („decizie personală", „recunoaște că...", „din cauza..."), caută formularea LITERALĂ în text. Dacă textul nu o spune literal → înlocuiește cu citatul exact între ghilimele sau elimină afirmația.\n` +
               `6. Păstrează diacriticele, emoji-urile potrivite și rândul „📌 Detalii complete în primul comentariu 👇" la final, pe rând separat. Păstrează eticheta de rubrică (🗣️/📷/🎬) dacă există.\n` +
+              ((stylePrompt || "").trim()
+                ? `EXCEPȚIE DE STIL: redacția a dat instrucțiuni OBLIGATORII de stil — """${stylePrompt.trim()}""" — acestea au prioritate peste regulile 3 și 4 de mai sus (lungime, emoji, ton). NU „corecta" stilul cerut de redacție. Verificarea faptelor (regulile 1, 2, 5) rămâne însă neatinsă.\n`
+                : "") +
               `Răspunzi DOAR cu textul final al postării, nimic altceva.`,
           },
           { role: "user", content: `TEXTUL știrii: ${sourceText}\n\nPROPUNEREA de postare:\n${draft}` },
