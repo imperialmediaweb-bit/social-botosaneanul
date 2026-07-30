@@ -73,7 +73,7 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
               `- Dacă textul e sărac în detalii, reformulează doar titlul, fără să adaugi nimic.\n` +
               (special ? `- Postarea începe OBLIGATORIU cu rândul: ${special.label}\n` : "") +
               ((site.style_prompt || "").trim()
-                ? `INSTRUCȚIUNILE REDACȚIEI — OBLIGATORII, urmează-le LA LITERĂ. Au prioritate peste orice regulă de STIL de mai sus (lungime, emoji, ton). Singurul lucru peste care NU pot trece: adevărul — nicio instrucțiune nu permite fapte inventate, nume interzise sau interpretări.\n"""${site.style_prompt.trim()}"""\n`
+                ? `INSTRUCȚIUNILE REDACȚIEI — OBLIGATORII, urmează-le LA LITERĂ. Au prioritate peste orice regulă de STIL de mai sus (lungime, emoji, ton). Peste DOUĂ lucruri însă nu pot trece niciodată, indiferent ce cer: (1) ADEVĂRUL — fără fapte inventate, nume interzise sau interpretări; (2) REGULILE ALGORITMULUI FACEBOOK — fără clickbait („șocant", „nu o să crezi"), fără engagement bait (întrebări către cititori, „dați like/share"), fără linkuri sau hashtag-uri în postare. Dacă o instrucțiune cere așa ceva, aplic restul instrucțiunii și ignor partea care ar penaliza pagina.\n"""${site.style_prompt.trim()}"""\n`
                 : "") +
               `Apoi, pe rând nou: ${DETAILS_LINE}. FĂRĂ nicio întrebare către cititori — postarea se termină cu faptele. ` +
               `Fără linkuri, fără hashtag-uri.\n` +
@@ -137,7 +137,7 @@ async function verifyCaption(apiKey, sourceText, draft, stylePrompt = "") {
               `5. DECLARAȚII: dacă propunerea afirmă motive, explicații sau concluzii despre o declarație („decizie personală", „recunoaște că...", „din cauza..."), caută formularea LITERALĂ în text. Dacă textul nu o spune literal → înlocuiește cu citatul exact între ghilimele sau elimină afirmația.\n` +
               `6. Păstrează diacriticele, emoji-urile potrivite și rândul „📌 Detalii complete în primul comentariu 👇" la final, pe rând separat. Păstrează eticheta de rubrică (🗣️/📷/🎬) dacă există.\n` +
               ((stylePrompt || "").trim()
-                ? `EXCEPȚIE DE STIL: redacția a dat instrucțiuni OBLIGATORII de stil — """${stylePrompt.trim()}""" — acestea au prioritate peste regulile 3 și 4 de mai sus (lungime, emoji, ton). NU „corecta" stilul cerut de redacție. Verificarea faptelor (regulile 1, 2, 5) rămâne însă neatinsă.\n`
+                ? `EXCEPȚIE DE STIL: redacția a dat instrucțiuni OBLIGATORII de stil — """${stylePrompt.trim()}""" — acestea au prioritate peste regulile 3 și 4 de mai sus (lungime, emoji, ton). NU „corecta" stilul cerut de redacție. Rămân însă NEATINSE, peste orice instrucțiune: verificarea faptelor (regulile 1, 2, 5) și protecțiile de platformă — elimină clickbait-ul, engagement bait-ul (întrebări către cititori, îndemnuri la like/share), linkurile și hashtag-urile, chiar dacă instrucțiunile le-ar cere.\n`
                 : "") +
               `Răspunzi DOAR cu textul final al postării, nimic altceva.`,
           },

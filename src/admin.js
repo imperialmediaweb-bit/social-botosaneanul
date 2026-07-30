@@ -605,7 +605,7 @@ admin.get("/sites/:slug/style", async (req, res) => {
       <textarea name="style_prompt" rows="5" placeholder="ex: Ton jurnalistic sobru. Două propoziții. Fără emoji la subiectele grave.">${esc(s.style_prompt || "")}</textarea>
       <p class="muted" style="margin-top:10px">Sau alegeți un stil gata făcut (apăsați și se completează câmpul — îl puteți modifica apoi):</p>
       <div class="preset-row">${presets}</div>
-      <p class="muted">Orice ați scrie, regulile de siguranță rămân active: postările nu inventează fapte, nu interpretează declarațiile și protejează identitatea persoanelor private.</p>
+      <p class="muted">Orice ați scrie, două plase de siguranță rămân mereu active: <b>adevărul</b> (postările nu inventează fapte, nu interpretează declarațiile, protejează persoanele private) și <b>regulile Facebook</b> de mai sus (fără clickbait, fără engagement bait, fără linkuri în postare) — instrucțiunile care le-ar încălca sunt ignorate, ca pagina să nu fie penalizată.</p>
       <div class="form-actions">
         <button type="submit" class="btn primary">💾 Salvează stilul</button>
         <a class="btn" href="/admin/sites/${esc(s.slug)}">Renunță</a>
