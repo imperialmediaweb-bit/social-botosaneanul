@@ -69,6 +69,7 @@ export async function aiCaption(site, title, rawSourceHtml, publishedAt = null) 
               `- INTERZIS: cifre, nume, locuri sau interpretări care NU apar în text.\n` +
               `- Ton faptic de știre — nu comunicat de presă, nu laude, nu limbaj de lemn.\n` +
               `- INTERZISE urările și comentariile editoriale: „mult succes", „felicitări", „condoleanțe", „ne pare rău", „baftă" etc. — chiar dacă apar în articol, ele NU intră în postare. Ziarul relatează, nu urează. Postarea se termină cu un fapt.\n` +
+              `- DECLARAȚIILE nu se interpretează: la Declarația zilei și la orice știre bazată pe o declarație, CITEAZĂ scurt cuvintele exacte din text (între ghilimele) + cine le-a spus. NU rezuma declarația cu concluziile tale și NU atribui motive/explicații („decizie personală", „din proprie inițiativă" etc.) decât dacă textul le spune LITERAL.\n` +
               `- Dacă textul e sărac în detalii, reformulează doar titlul, fără să adaugi nimic.\n` +
               (special ? `- Postarea începe OBLIGATORIU cu rândul: ${special.label}\n` : "") +
               ((site.style_prompt || "").trim()
@@ -133,7 +134,8 @@ async function verifyCaption(apiKey, sourceText, draft) {
               `2. Numele persoanelor: la persoane PUBLICE (politicieni, sportivi cunoscuți, oficiali, artiști) numele poate rămâne dacă e în text. La persoane PRIVATE (victime, suspecți, cetățeni obișnuiți) numele se ELIMINĂ — înlocuiește cu descrieri (vârstă/profesie/localitate) doar dacă apar în text. Nesigur → fără nume.\n` +
               `3. Scurtează la 1-2 propoziții, maxim 40 de cuvinte (fără rândul cu 📌) — postarea e cârlig, nu rezumat: NU dezvălui deznodământul/detaliul-cheie.\n` +
               `4. ELIMINĂ orice urare sau comentariu editorial („mult succes", „felicitări", „condoleanțe", „baftă") — ziarul relatează fapte, nu urează. Postarea se termină cu un fapt.\n` +
-              `5. Păstrează diacriticele, emoji-urile potrivite și rândul „📌 Detalii complete în primul comentariu 👇" la final, pe rând separat. Păstrează eticheta de rubrică (🗣️/📷/🎬) dacă există.\n` +
+              `5. DECLARAȚII: dacă propunerea afirmă motive, explicații sau concluzii despre o declarație („decizie personală", „recunoaște că...", „din cauza..."), caută formularea LITERALĂ în text. Dacă textul nu o spune literal → înlocuiește cu citatul exact între ghilimele sau elimină afirmația.\n` +
+              `6. Păstrează diacriticele, emoji-urile potrivite și rândul „📌 Detalii complete în primul comentariu 👇" la final, pe rând separat. Păstrează eticheta de rubrică (🗣️/📷/🎬) dacă există.\n` +
               `Răspunzi DOAR cu textul final al postării, nimic altceva.`,
           },
           { role: "user", content: `TEXTUL știrii: ${sourceText}\n\nPROPUNEREA de postare:\n${draft}` },
