@@ -588,29 +588,26 @@ admin.get("/sites/:slug/style", async (req, res) => {
   ).join(" ");
   res.send(page("Stilul postărilor", `<div class="card form-card">
     <h2>✍️ Stilul postărilor — ${esc(s.name)}</h2>
-    <div class="alert ok">💡 <b>Recomandarea noastră pentru reach:</b> stilul „Scurt și percutant" — 1-2 propoziții care stârnesc curiozitatea, fără să dea tot conținutul; postările scurte cu cârlig aduc cele mai multe click-uri pe articol. Varianta „titlul original" (bifa de mai jos) e potrivită pentru perioade de test sau control total al redacției.</div>
-    <div class="alert warn">📘 <b>Regulile algoritmului Facebook, pe care sistemul le respectă automat:</b><br>
-      • linkurile în postare sunt declasate → linkul se pune în <b>primul comentariu</b>;<br>
-      • <b>clickbait-ul</b> („nu o să crezi...", „șocant") și <b>engagement bait-ul</b> („dați like", „voi ce părere aveți?") sunt detectate și penalizate → interzise în texte;<br>
-      • postările înghesuite își taie reach-ul una alteia → maxim <b>o postare la 15 minute</b>;<br>
-      • pozele încărcate direct (album) primesc reach mai bun decât link-preview-urile;<br>
-      • <b>primele 30-60 de minute decid</b>: dacă postarea primește reacții și comentarii repede, algoritmul o împinge mai departe — aici ajută enorm ca cineva din redacție să interacționeze cu postările proaspete.</div>
     <form method="post" action="/admin/sites/${esc(s.slug)}/style">
       <label class="check-row">
         <input type="checkbox" name="use_original_title" value="1" ${s.use_original_title ? "checked" : ""}>
         <span><b>Folosește titlul original al articolului</b><br>
-        <small class="muted">Postarea va fi DOAR titlul de pe site — fără text AI, fără alte formulări. Linkul articolului se pune în continuare în primul comentariu.</small></span>
+        <small class="muted">Postarea va fi doar titlul de pe site, fără text AI. Linkul rămâne în primul comentariu.</small></span>
       </label>
-      <label>Indicații de stil pentru AI <small>(se respectă LA LITERĂ; se aplică doar când bifa de mai sus e debifată)</small></label>
-      <textarea name="style_prompt" rows="5" placeholder="ex: Ton jurnalistic sobru. Două propoziții. Fără emoji la subiectele grave.">${esc(s.style_prompt || "")}</textarea>
-      <p class="muted" style="margin-top:10px">Sau alegeți un stil gata făcut (apăsați și se completează câmpul — îl puteți modifica apoi):</p>
+      <label>Indicații de stil pentru AI <small>(se aplică doar cu bifa de mai sus debifată)</small></label>
+      <textarea name="style_prompt" rows="4" placeholder="ex: Ton jurnalistic sobru. Două propoziții. Fără emoji la subiectele grave.">${esc(s.style_prompt || "")}</textarea>
       <div class="preset-row">${presets}</div>
-      <p class="muted">Orice ați scrie, două plase de siguranță rămân mereu active: <b>adevărul</b> (postările nu inventează fapte, nu interpretează declarațiile, protejează persoanele private) și <b>regulile Facebook</b> de mai sus (fără clickbait, fără engagement bait, fără linkuri în postare) — instrucțiunile care le-ar încălca sunt ignorate, ca pagina să nu fie penalizată.</p>
       <div class="form-actions">
         <button type="submit" class="btn primary">💾 Salvează stilul</button>
         <a class="btn" href="/admin/sites/${esc(s.slug)}">Renunță</a>
       </div>
     </form>
+    <details class="fine">
+      <summary>💡 Recomandare și reguli Facebook</summary>
+      <p><b>Recomandat pentru reach:</b> „Scurt și percutant" — 1-2 propoziții cu cârlig, fără să dea tot conținutul. „Titlul original" e potrivit pentru teste sau control total al redacției.</p>
+      <p><b>Reguli pe care sistemul le respectă automat, orice ați scrie mai sus:</b> linkul doar în primul comentariu · fără clickbait și engagement bait · maxim o postare la 15 minute · poze ca album nativ · fără fapte inventate sau declarații interpretate.</p>
+      <p><b>Sfat:</b> primele 30-60 de minute decid reach-ul — o reacție sau un comentariu de la cineva din redacție imediat după postare ajută mult.</p>
+    </details>
   </div>
   <script>
     document.querySelectorAll(".preset").forEach(function(b) {
@@ -819,7 +816,10 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
   .empty { color: #6b7280; text-align: center; padding: 26px 10px; font-size: 14px; }
   .check-row { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; background: #f7f8fb; border: 1px solid #e6e9f0; border-radius: 10px; padding: 12px 14px; }
   .check-row input { width: auto; margin-top: 4px; }
-  .preset-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .preset-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  details.fine { margin-top: 18px; border-top: 1px solid #eef0f4; padding-top: 12px; color: #6b7280; font-size: 13px; }
+  details.fine summary { cursor: pointer; font-weight: 600; color: #4a5568; }
+  details.fine p { margin: 10px 0 0; }
 
   .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
   .stat { background: #fff; border: 1px solid #e6e9f0; border-radius: 14px; padding: 16px 18px; box-shadow: 0 1px 3px rgba(16,24,40,.05); }
