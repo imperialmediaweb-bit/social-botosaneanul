@@ -2,7 +2,7 @@ import { pool, acquireLock, releaseLock } from "./db.js";
 import { getSites } from "./sites.js";
 import { fetchFeedItems } from "./lib/rss.js";
 import { extractGallery } from "./lib/gallery.js";
-import { aiCaption, fallbackCaption } from "./lib/caption.js";
+import { aiCaption, fallbackCaption, DETAILS_LINE } from "./lib/caption.js";
 import { postToPage, postPhotoToPage, postAlbumToPage, commentOnPost, postStoryImageToPage } from "./lib/fb.js";
 import { composeStoryImage } from "./lib/storyImage.js";
 
@@ -231,10 +231,10 @@ async function processSite(site, { force, dry }) {
     const gallery = media.images;
     // textul REAL al articolului (de pe pagină) e sursa captionului; feed-ul
     // e doar fallback — rezumatele sărace duc la halucinații AI
-    // bifa „Folosește titlul original" → postarea e DOAR titlul articolului,
-    // fără rândul cu 📌 și fără etichete — nimic altceva
+    // bifa „Folosește titlul original" → postarea e titlul articolului;
+    // a doua bifă (details_line) adaugă opțional rândul cu 📌
     const caption = site.use_original_title
-      ? item.title
+      ? (site.details_line ? `${item.title}\n\n${DETAILS_LINE}` : item.title)
       : (await aiCaption(site, item.title, media.text || item.contentEncoded || item.description, item.publishedAt)) ||
         fallbackCaption(item.title);
 

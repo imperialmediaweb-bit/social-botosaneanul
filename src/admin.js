@@ -594,6 +594,11 @@ admin.get("/sites/:slug/style", async (req, res) => {
         <span><b>Folosește titlul original al articolului</b><br>
         <small class="muted">Postarea va fi doar titlul de pe site, fără text AI. Linkul rămâne în primul comentariu.</small></span>
       </label>
+      <label class="check-row">
+        <input type="checkbox" name="details_line" value="1" ${s.details_line ? "checked" : ""}>
+        <span><b>Adaugă rândul „📌 Detalii complete în primul comentariu 👇"</b><br>
+        <small class="muted">Se aplică la titlul original: bifat = titlul + rândul cu 📌; debifat = doar titlul.</small></span>
+      </label>
       <label>Indicații de stil pentru AI <small>(se aplică doar cu bifa de mai sus debifată)</small></label>
       <textarea name="style_prompt" rows="4" placeholder="ex: Ton jurnalistic sobru. Două propoziții. Fără emoji la subiectele grave.">${esc(s.style_prompt || "")}</textarea>
       <div class="preset-row">${presets}</div>
@@ -622,8 +627,8 @@ admin.post("/sites/:slug/style", async (req, res) => {
   const s = await getSite(req.params.slug);
   if (s) {
     await pool.query(
-      `UPDATE sites SET style_prompt = $2, use_original_title = $3, updated_at = NOW() WHERE slug = $1`,
-      [s.slug, (req.body.style_prompt || "").trim().slice(0, 1000), req.body.use_original_title === "1"]
+      `UPDATE sites SET style_prompt = $2, use_original_title = $3, details_line = $4, updated_at = NOW() WHERE slug = $1`,
+      [s.slug, (req.body.style_prompt || "").trim().slice(0, 1000), req.body.use_original_title === "1", req.body.details_line === "1"]
     );
   }
   res.redirect(s ? `/admin/sites/${s.slug}` : "/admin");

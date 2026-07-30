@@ -1,6 +1,6 @@
 import { stripHtml } from "./entities.js";
 
-const DETAILS_LINE = "📌 Detalii complete în primul comentariu 👇";
+export const DETAILS_LINE = "📌 Detalii complete în primul comentariu 👇";
 
 // Rubrici speciale ale ziarului, aproape fără text (poză/citat): eticheta
 // intră la începutul postării, iar AI-ul nu are voie să brodeze nimic.
