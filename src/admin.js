@@ -481,6 +481,7 @@ admin.get("/sites/:slug", async (req, res) => {
         ${req.role === "admin" ? `<a class="btn sm" href="/admin/sites/${esc(s.slug)}/edit">⚙️ Setări</a>` : ""}
         <form method="post" action="/admin/sites/${esc(s.slug)}/check"><button class="btn sm">🔍 Verifică token</button></form>
         <form method="post" action="/admin/sites/${esc(s.slug)}/stories-toggle"><button class="btn sm">${s.stories_enabled !== false ? "📱 Story automat: PORNIT" : "📱 Story automat: OPRIT"}</button></form>
+        <form method="post" action="/admin/sites/${esc(s.slug)}/mark-seen" onsubmit="return confirm('Marchează toate articolele din feed ca văzute? Nu vor mai fi postate — util după ce redacția a postat manual.')"><button class="btn sm" title="După o pauză: sistemul reia curat, fără să reposteze ce s-a publicat manual">✅ Marchează tot ca văzut</button></form>
         <form method="post" action="/admin/sites/${esc(s.slug)}/toggle"><button class="btn sm">${s.active ? "⏸ Pune pe pauză" : "▶ Pornește"}</button></form>
       </div>
     </div>
@@ -528,6 +529,35 @@ admin.post("/sites/:slug/stories-toggle", async (req, res) => {
     await pool.query(`UPDATE sites SET stories_enabled = NOT stories_enabled, updated_at = NOW() WHERE slug = $1`, [s.slug]);
   }
   res.redirect(s ? `/admin/sites/${s.slug}` : "/admin");
+});
+
+// „Marchează tot ca văzut": toate articolele din feed acum se trec în
+// registru fără a fi postate — folosit după pauze (ex. când redacția a
+// postat manual), ca sistemul să reia curat, doar cu articolele următoare.
+admin.post("/sites/:slug/mark-seen", async (req, res) => {
+  const s = await getSite(req.params.slug);
+  const back = s ? `<a class="btn" href="/admin/sites/${esc(s.slug)}">← Înapoi</a>` : `<a class="btn" href="/admin">← Înapoi</a>`;
+  if (!s || !s.fb_page_id) {
+    return res.send(page("Marcare", `<div class="card"><div class="alert err">Site neconectat.</div>${back}</div>`));
+  }
+  try {
+    const { fetchFeedItems } = await import("./lib/rss.js");
+    const items = await fetchFeedItems(s.feed_url);
+    let n = 0;
+    for (const item of items) {
+      const r = await pool.query(
+        `INSERT INTO external_fb_posts (page_id, item_url, fb_post_id)
+         VALUES ($1, $2, 'baseline') ON CONFLICT (page_id, item_url) DO NOTHING`,
+        [s.fb_page_id, item.link]
+      );
+      n += r.rowCount;
+    }
+    res.send(page("Marcare", `<div class="card"><h2>✔ Gata</h2>
+      <div class="alert ok">${n} ${n === 1 ? "articol a fost marcat" : "articole au fost marcate"} ca văzute (din ${items.length} din feed).
+      Nu vor fi postate. Sistemul va posta doar articolele publicate de acum înainte.</div>${back}</div>`));
+  } catch (e) {
+    res.send(page("Marcare", `<div class="card"><div class="alert err">Eroare: ${esc(e.message.slice(0, 200))}</div>${back}</div>`));
+  }
 });
 
 // Story manual dintr-o postare existentă (poza principală a articolului)
