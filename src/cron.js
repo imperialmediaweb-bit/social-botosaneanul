@@ -3,8 +3,8 @@ import { getSites } from "./sites.js";
 import { fetchFeedItems } from "./lib/rss.js";
 import { extractGallery } from "./lib/gallery.js";
 import { aiCaption, fallbackCaption, DETAILS_LINE } from "./lib/caption.js";
-import { postToPage, postPhotoToPage, postAlbumToPage, commentOnPost, postStoryImageToPage } from "./lib/fb.js";
-import { composeStoryImage } from "./lib/storyImage.js";
+import { postToPage, postPhotoToPage, postAlbumToPage, commentOnPost, postStoryImageToPage, postPhotoBufferToPage } from "./lib/fb.js";
+import { composeStoryImage, composeBrandCard } from "./lib/storyImage.js";
 
 const LOCK_NAME = "social-post";
 // max 1 postare / N min / pagină (THROTTLE_MINUTES în env pentru alt ritm)
@@ -258,8 +258,18 @@ async function processSite(site, { force, dry }) {
         const r = await postPhotoToPage(pageId, token, gallery[0], caption);
         fbPostId = r.post_id;
       } else {
-        const r = await postToPage(pageId, token, caption, item.link);
-        fbPostId = r.id;
+        // articol fără nicio poză → card de brand cu titlul, ca postarea să
+        // rămână nativă cu imagine; dacă și asta pică, ultimul refugiu e
+        // postarea cu link
+        try {
+          const card = await composeBrandCard(item.title, site.name, site.slug);
+          const r = await postPhotoBufferToPage(pageId, token, card, caption);
+          fbPostId = r.post_id;
+        } catch (e) {
+          console.error(`card de brand eșuat pentru ${item.link}:`, e.message);
+          const r = await postToPage(pageId, token, caption, item.link);
+          fbPostId = r.id;
+        }
       }
 
       // linkul articolului în PRIMUL COMENTARIU — bug-urile aici nu mai sunt

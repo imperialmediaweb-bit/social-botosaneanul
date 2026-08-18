@@ -29,6 +29,19 @@ export async function postPhotoToPage(pageId, accessToken, imageUrl, message) {
   return { id: data.id, post_id: data.post_id || data.id };
 }
 
+// Postare cu o imagine generată local (buffer JPEG) — folosită pentru
+// articolele fără nicio poză, ca postarea să rămână nativă cu imagine.
+export async function postPhotoBufferToPage(pageId, accessToken, jpegBuffer, message) {
+  const form = new FormData();
+  form.append("caption", message);
+  form.append("access_token", accessToken);
+  form.append("source", new Blob([jpegBuffer], { type: "image/jpeg" }), "card.jpg");
+  const res = await fetch(`${FB_GRAPH}/${pageId}/photos`, { method: "POST", body: form, cache: "no-store" });
+  const data = await res.json();
+  if (!res.ok || !data.id) throw new Error(`FB photo(buffer) post failed: ${JSON.stringify(data)}`);
+  return { id: data.id, post_id: data.post_id || data.id };
+}
+
 async function uploadUnpublishedPhoto(pageId, accessToken, imageUrl) {
   if (!validImageUrl(imageUrl)) {
     throw new Error(`Poza nu e URL valid: "${(imageUrl || "").slice(0, 60)}"`);

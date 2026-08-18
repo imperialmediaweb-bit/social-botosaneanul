@@ -35,6 +35,47 @@ function wrapTitle(title, maxChars = 26, maxLines = 5) {
   return lines;
 }
 
+// Card de brand 1200×630 pentru articolele FĂRĂ nicio poză (unele știri „din
+// surse" n-au ilustrație). Astfel postarea rămâne nativă cu imagine, în loc
+// de preview de link — care are reach slab și pune linkul în postare.
+export async function composeBrandCard(title, siteName, slug = "") {
+  const theme = SITE_THEMES[slug] || DEFAULT_THEME;
+  const logo = await fetchLogo(theme.logo, 420);
+  const CW = 1200;
+  const CH = 630;
+
+  const lines = wrapTitle(title, 30, 4);
+  const fontSize = 58;
+  const lineH = 74;
+  const blockTop = 300 - ((lines.length - 1) * lineH) / 2;
+
+  const tspans = lines
+    .map((l, i) => `<text x="${CW / 2}" y="${blockTop + i * lineH}" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="${fontSize}" font-weight="bold" fill="#ffffff">${escXml(l)}</text>`)
+    .join("");
+
+  const svg = `<svg width="${CW}" height="${CH}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="${theme.stops[0]}"/>
+        <stop offset="55%" stop-color="${theme.stops[1]}"/>
+        <stop offset="100%" stop-color="${theme.stops[2]}"/>
+      </linearGradient>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#bg)"/>
+    ${logo ? "" : `<text x="${CW / 2}" y="120" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="40" font-weight="bold" fill="#ffffff" letter-spacing="4">${escXml(String(siteName || "").toUpperCase())}</text>`}
+    ${tspans}
+    <rect x="${CW / 2 - 60}" y="${CH - 105}" width="120" height="6" fill="${theme.accent}"/>
+  </svg>`;
+
+  const layers = [];
+  if (logo) layers.push({ input: logo.buf, top: 70, left: Math.round((CW - logo.w) / 2) });
+
+  return sharp(Buffer.from(svg))
+    .composite(layers)
+    .jpeg({ quality: 90 })
+    .toBuffer();
+}
+
 // Acceptă o LISTĂ de poze candidate: le încearcă pe rând și o folosește pe
 // prima care se descarcă și se decodează la o mărime decentă (unele articole
 // au ca primă poză un placeholder sau o imagine minusculă → story „gol").
@@ -78,9 +119,10 @@ export const SITE_THEMES = {
 const DEFAULT_THEME = { stops: ["#151f66", "#1d2b7d", "#2e3e9e"], accent: "#8fa3ff", logo: null };
 
 const logoCache = new Map();
-async function fetchLogo(url) {
+async function fetchLogo(url, width = 460) {
   if (!url) return null;
-  if (logoCache.has(url)) return logoCache.get(url);
+  const key = `${url}@${width}`;
+  if (logoCache.has(key)) return logoCache.get(key);
   try {
     const res = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; SocialBot/1.0)" },
@@ -88,14 +130,13 @@ async function fetchLogo(url) {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buf = Buffer.from(await res.arrayBuffer());
-    // redimensionat la lățime de 460px, păstrând transparența
-    const logo = await sharp(buf).resize({ width: 460 }).png().toBuffer();
+    const logo = await sharp(buf).resize({ width }).png().toBuffer();
     const meta = await sharp(logo).metadata();
     const out = { buf: logo, w: meta.width, h: meta.height };
-    logoCache.set(url, out);
+    logoCache.set(key, out);
     return out;
   } catch {
-    logoCache.set(url, null);
+    logoCache.set(key, null);
     return null;
   }
 }
