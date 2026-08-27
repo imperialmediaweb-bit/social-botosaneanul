@@ -421,6 +421,14 @@ admin.get("/sites/:slug", async (req, res) => {
     [pageId]
   );
 
+  // articole care NU au putut fi postate (claim fără fb_post_id + eroare)
+  const { rows: problems } = await pool.query(
+    `SELECT item_url, last_error, posted_at FROM external_fb_posts
+     WHERE page_id = $1 AND fb_post_id IS NULL AND last_error IS NOT NULL
+     ORDER BY posted_at DESC LIMIT 10`,
+    [pageId]
+  );
+
   // performanța reală, live din Graph API (reacții/comentarii/distribuiri)
   const engagement = await Promise.all(
     lastPosts.map((p) => s.fb_access_token ? postEngagement(p.fb_post_id, s.fb_access_token) : null)
@@ -492,6 +500,17 @@ admin.get("/sites/:slug", async (req, res) => {
       <div class="stat"><div class="stat-n">${stats.total}</div><div class="stat-l">total postări</div></div>
       <div class="stat accent"><div class="stat-n">${engTotal.r + engTotal.c + engTotal.s}</div><div class="stat-l">interacțiuni la ultimele ${lastPosts.length} postări<br><small>👍 ${engTotal.r} · 💬 ${engTotal.c} · ↗ ${engTotal.s}</small></div></div>
     </div>
+    ${problems.length ? `<div class="card">
+      <h2>⚠️ Articole care nu s-au putut posta</h2>
+      <p class="muted">Sistemul le reîncearcă automat după ${20} de minute. Dacă o eroare se repetă, trimiteți-mi-o.</p>
+      <div class="table-scroll"><table><tr><th>Când</th><th>Articol</th><th>Motiv</th></tr>
+      ${problems.map((p) => `<tr>
+        <td class="nowrap muted">${fmtDate(p.posted_at)}</td>
+        <td><a href="${esc(p.item_url)}" target="_blank" class="post-link">${esc(prettyTitle(p.item_url))}</a></td>
+        <td><small class="err">${esc(String(p.last_error).slice(0, 160))}</small></td>
+      </tr>`).join("")}
+      </table></div>
+    </div>` : ""}
     <div class="card">
       <h2>🕘 Postările site-ului</h2>
       ${postRows

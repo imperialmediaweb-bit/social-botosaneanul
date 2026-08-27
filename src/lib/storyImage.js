@@ -79,7 +79,7 @@ export async function composeBrandCard(title, siteName, slug = "") {
 // Acceptă o LISTĂ de poze candidate: le încearcă pe rând și o folosește pe
 // prima care se descarcă și se decodează la o mărime decentă (unele articole
 // au ca primă poză un placeholder sau o imagine minusculă → story „gol").
-async function fetchUsableImage(imageUrls) {
+export async function fetchUsableImage(imageUrls) {
   const errors = [];
   for (const url of [].concat(imageUrls).filter(Boolean).slice(0, 5)) {
     try {

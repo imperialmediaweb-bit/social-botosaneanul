@@ -4,7 +4,7 @@ import { fetchFeedItems } from "./lib/rss.js";
 import { extractGallery } from "./lib/gallery.js";
 import { aiCaption, fallbackCaption, DETAILS_LINE } from "./lib/caption.js";
 import { postToPage, postPhotoToPage, postAlbumToPage, commentOnPost, postStoryImageToPage, postPhotoBufferToPage } from "./lib/fb.js";
-import { composeStoryImage, composeBrandCard } from "./lib/storyImage.js";
+import { composeStoryImage, composeBrandCard, fetchUsableImage } from "./lib/storyImage.js";
 
 const LOCK_NAME = "social-post";
 // max 1 postare / N min / pagină (THROTTLE_MINUTES în env pentru alt ritm)
@@ -250,27 +250,42 @@ async function processSite(site, { force, dry }) {
     }
 
     try {
-      let fbPostId;
+      // Publicare cu plase de siguranță în cascadă: dacă Meta refuză o
+      // variantă (URL de CDN cu parametri, poză prea mare, album parțial),
+      // trecem la următoarea în loc să eșuăm articolul.
+      let fbPostId = null;
+      const attempts = [];
+
       if (gallery.length >= 2) {
-        const r = await postAlbumToPage(pageId, token, gallery, caption);
-        fbPostId = r.post_id;
-      } else if (gallery.length === 1) {
-        const r = await postPhotoToPage(pageId, token, gallery[0], caption);
-        fbPostId = r.post_id;
-      } else {
-        // articol fără nicio poză → card de brand cu titlul, ca postarea să
-        // rămână nativă cu imagine; dacă și asta pică, ultimul refugiu e
-        // postarea cu link
+        try {
+          fbPostId = (await postAlbumToPage(pageId, token, gallery, caption)).post_id;
+        } catch (e) { attempts.push(`album: ${e.message}`); }
+      }
+      if (!fbPostId && gallery.length >= 1) {
+        try {
+          fbPostId = (await postPhotoToPage(pageId, token, gallery[0], caption)).post_id;
+        } catch (e) { attempts.push(`foto-url: ${e.message}`); }
+      }
+      if (!fbPostId && gallery.length >= 1) {
+        // Meta refuză unele URL-uri (CDN cu query string, redirecturi):
+        // descărcăm noi poza și o urcăm ca fișier
+        try {
+          const buf = await fetchUsableImage(gallery);
+          fbPostId = (await postPhotoBufferToPage(pageId, token, buf, caption)).post_id;
+        } catch (e) { attempts.push(`foto-upload: ${e.message}`); }
+      }
+      if (!fbPostId) {
+        // fără poze utilizabile → card de brand cu titlul
         try {
           const card = await composeBrandCard(item.title, site.name, site.slug);
-          const r = await postPhotoBufferToPage(pageId, token, card, caption);
-          fbPostId = r.post_id;
-        } catch (e) {
-          console.error(`card de brand eșuat pentru ${item.link}:`, e.message);
-          const r = await postToPage(pageId, token, caption, item.link);
-          fbPostId = r.id;
-        }
+          fbPostId = (await postPhotoBufferToPage(pageId, token, card, caption)).post_id;
+        } catch (e) { attempts.push(`card: ${e.message}`); }
       }
+      if (!fbPostId) {
+        // ultimul refugiu: postare cu link (aruncă mai departe dacă și asta pică)
+        fbPostId = (await postToPage(pageId, token, caption, item.link)).id;
+      }
+      if (attempts.length) console.error(`variante eșuate pentru ${item.link}: ${attempts.join(" | ")}`);
 
       // linkul articolului în PRIMUL COMENTARIU — bug-urile aici nu mai sunt
       // tăcute: postarea rămâne, dar raportăm de ce n-a apărut comentariul
@@ -283,7 +298,7 @@ async function processSite(site, { force, dry }) {
       }
 
       await pool.query(
-        `UPDATE external_fb_posts SET fb_post_id = $3, posted_at = NOW()
+        `UPDATE external_fb_posts SET fb_post_id = $3, posted_at = NOW(), last_error = NULL
          WHERE page_id = $1 AND item_url = $2`,
         [pageId, item.link, fbPostId]
       );
@@ -292,6 +307,11 @@ async function processSite(site, { force, dry }) {
     } catch (e) {
       // NU ștergem claim-ul imediat (anti ghost-post): rămâne în carantină 20 min,
       // apoi cleanup-ul de la începutul rulării îl eliberează pentru retry.
+      // Eroarea se salvează, ca să fie vizibilă în panou (nu doar în loguri).
+      await pool.query(
+        `UPDATE external_fb_posts SET last_error = $3 WHERE page_id = $1 AND item_url = $2`,
+        [pageId, item.link, String(e.message).slice(0, 500)]
+      ).catch(() => {});
       return { ...out, error: `post: ${e.message}`, item: item.link, quarantinedMinutes: QUARANTINE_MINUTES };
     }
   }
