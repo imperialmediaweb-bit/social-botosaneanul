@@ -35,7 +35,7 @@ export async function maybePostStory(site, pageId, token) {
     // cel mai vechi articol postat în ultimele 24h care n-are Story încă
     const { rows: [cand] } = await pool.query(
       `SELECT item_url FROM external_fb_posts
-       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')
+       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered', 'failed')
          AND story_id IS NULL AND posted_at > NOW() - INTERVAL '24 hours'
        ORDER BY posted_at ASC LIMIT 1`,
       [pageId]
@@ -128,14 +128,6 @@ async function processSite(site, { force, dry }) {
     return { ...out, skipped: "pagina FB neconfigurată (Page ID / token lipsă — setează-le în /admin)" };
   }
 
-  // Carantina expirată: claim-uri fără fb_post_id mai vechi de 20 min → se pot reîncerca.
-  await pool.query(
-    `DELETE FROM external_fb_posts
-     WHERE page_id = $1 AND fb_post_id IS NULL
-       AND posted_at < NOW() - make_interval(mins => $2)`,
-    [pageId, QUARANTINE_MINUTES]
-  );
-
   // Story-urile merg pe programul lor (întinse pe zi), independent de postări
   if (!dry) {
     out.story = await maybePostStory(site, pageId, token);
@@ -145,7 +137,7 @@ async function processSite(site, { force, dry }) {
   if (!force && !dry) {
     const t = await pool.query(
       `SELECT 1 FROM external_fb_posts
-       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')
+       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered', 'failed')
          AND posted_at > NOW() - make_interval(mins => $2)
        LIMIT 1`,
       [pageId, THROTTLE_MINUTES]
@@ -190,12 +182,39 @@ async function processSite(site, { force, dry }) {
     }
   }
 
+  // Articolele care au eșuat repetat până au ieșit din fereastra de 24h nu mai
+  // dispar tăcut: rămân marcate 'failed' cu eroarea lor, vizibile în panou.
+  // (Marcarea se face ÎNAINTE de cleanup-ul carantinei, altfel cleanup-ul le-ar
+  // șterge claim-ul — de exemplu după o pauză lungă a serviciului.)
+  const tooOld = (it) =>
+    it.publishedAt && Date.now() - it.publishedAt.getTime() > MAX_ARTICLE_AGE_HOURS * 3600 * 1000;
+  const expiredLinks = items.filter(tooOld).map((it) => it.link);
+  if (expiredLinks.length) {
+    await pool.query(
+      `UPDATE external_fb_posts SET fb_post_id = 'failed'
+       WHERE page_id = $1 AND item_url = ANY($2) AND fb_post_id IS NULL AND last_error IS NOT NULL`,
+      [pageId, expiredLinks]
+    );
+  }
+
+  // Carantina expirată: claim-uri fără fb_post_id mai vechi de 20 min → se pot reîncerca.
+  await pool.query(
+    `DELETE FROM external_fb_posts
+     WHERE page_id = $1 AND fb_post_id IS NULL
+       AND posted_at < NOW() - make_interval(mins => $2)`,
+    [pageId, QUARANTINE_MINUTES]
+  );
+
+  // Postăm în ORDINEA PUBLICĂRII (cel mai vechi articol nou primul). Feed-ul
+  // vine invers cronologic — fără sortare, la o rafală de articole publicate
+  // la câteva minute distanță, primul publicat ajunge mereu la coada cozii.
+  const queue = items
+    .filter((it) => !tooOld(it))
+    .sort((a, b) => (a.publishedAt?.getTime() ?? 0) - (b.publishedAt?.getTime() ?? 0));
+
   const dryReport = [];
-  for (const item of items) {
-    // doar articole din ziua curentă (max 24h; MAX_ARTICLE_AGE_HOURS în env)
-    if (item.publishedAt && Date.now() - item.publishedAt.getTime() > MAX_ARTICLE_AGE_HOURS * 3600 * 1000) {
-      continue;
-    }
+  let failures = 0;
+  for (const item of queue) {
     // CLAIM ATOMIC înainte de orice: doar rularea care câștigă INSERT-ul postează.
     const claim = await pool.query(
       `INSERT INTO external_fb_posts (page_id, item_url, fb_post_id)
@@ -312,7 +331,13 @@ async function processSite(site, { force, dry }) {
         `UPDATE external_fb_posts SET last_error = $3 WHERE page_id = $1 AND item_url = $2`,
         [pageId, item.link, String(e.message).slice(0, 500)]
       ).catch(() => {});
-      return { ...out, error: `post: ${e.message}`, item: item.link, quarantinedMinutes: QUARANTINE_MINUTES };
+      // un articol stricat NU mai blochează restul rulării: îl lăsăm în
+      // carantină și încercăm următorul articol din coadă (max 3 eșecuri pe
+      // rulare — dacă pică 3 la rând, problema e probabil tokenul/pagina)
+      out.errors = out.errors || [];
+      out.errors.push({ item: item.link, error: `post: ${e.message}`, quarantinedMinutes: QUARANTINE_MINUTES });
+      if (++failures >= 3) return { ...out, note: "oprit după 3 eșecuri consecutive" };
+      continue;
     }
   }
 

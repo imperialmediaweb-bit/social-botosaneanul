@@ -317,7 +317,7 @@ admin.get("/", async (req, res) => {
     const { rows } = await pool.query(
       `SELECT MAX(posted_at) AS last, COUNT(*)::int AS n
        FROM external_fb_posts
-       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')`,
+       WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered', 'failed')`,
       [s.fb_page_id || "-"]
     );
     const st = statuses[i];
@@ -410,21 +410,23 @@ admin.get("/sites/:slug", async (req, res) => {
        COUNT(*) FILTER (WHERE posted_at > NOW() - INTERVAL '30 days')::int AS last30,
        COUNT(*)::int AS total
      FROM external_fb_posts
-     WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')`,
+     WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered', 'failed')`,
     [pageId]
   );
 
   const { rows: lastPosts } = await pool.query(
     `SELECT item_url, fb_post_id, posted_at, story_id FROM external_fb_posts
-     WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered')
+     WHERE page_id = $1 AND fb_post_id IS NOT NULL AND fb_post_id NOT IN ('baseline', 'filtered', 'failed')
      ORDER BY posted_at DESC LIMIT 20`,
     [pageId]
   );
 
-  // articole care NU au putut fi postate (claim fără fb_post_id + eroare)
+  // articole care NU au putut fi postate: în carantină (fb_post_id NULL) sau
+  // expirate definitiv după 24h de reîncercări ('failed') — ambele cu eroarea lor
   const { rows: problems } = await pool.query(
-    `SELECT item_url, last_error, posted_at FROM external_fb_posts
-     WHERE page_id = $1 AND fb_post_id IS NULL AND last_error IS NOT NULL
+    `SELECT item_url, last_error, posted_at, fb_post_id FROM external_fb_posts
+     WHERE page_id = $1 AND last_error IS NOT NULL
+       AND (fb_post_id IS NULL OR fb_post_id = 'failed')
      ORDER BY posted_at DESC LIMIT 10`,
     [pageId]
   );
@@ -502,11 +504,12 @@ admin.get("/sites/:slug", async (req, res) => {
     </div>
     ${problems.length ? `<div class="card">
       <h2>⚠️ Articole care nu s-au putut posta</h2>
-      <p class="muted">Sistemul le reîncearcă automat după ${20} de minute. Dacă o eroare se repetă, trimiteți-mi-o.</p>
-      <div class="table-scroll"><table><tr><th>Când</th><th>Articol</th><th>Motiv</th></tr>
+      <p class="muted">Sistemul le reîncearcă automat după ${20} de minute, până articolul împlinește 24 de ore. Dacă o eroare se repetă, trimiteți-mi-o.</p>
+      <div class="table-scroll"><table><tr><th>Când</th><th>Articol</th><th>Stare</th><th>Motiv</th></tr>
       ${problems.map((p) => `<tr>
         <td class="nowrap muted">${fmtDate(p.posted_at)}</td>
         <td><a href="${esc(p.item_url)}" target="_blank" class="post-link">${esc(prettyTitle(p.item_url))}</a></td>
+        <td class="nowrap">${p.fb_post_id === "failed" ? `<span class="err">✖ expirat (nu se mai reîncearcă)</span>` : `<span class="muted">↻ se reîncearcă</span>`}</td>
         <td><small class="err">${esc(String(p.last_error).slice(0, 160))}</small></td>
       </tr>`).join("")}
       </table></div>
