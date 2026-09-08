@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { pool } from "./db.js";
 import { getSites, getSite, upsertSite, setSiteActive, deleteSite } from "./sites.js";
 import { runSocialPost } from "./cron.js";
+import { APP_VERSION } from "./version.js";
 
 export const admin = express.Router();
 
@@ -909,5 +910,6 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
     .btn { padding: 8px 12px; }
     .card { padding: 16px; }
   }
-</style></head><body>${topbar}<div class="wrap">${body}</div></body></html>`;
+    .ver { text-align: center; color: #9aa3c0; font-size: 11px; margin: 22px 0 10px; }
+</style></head><body>${topbar}<div class="wrap">${body}<div class="ver">motor ${APP_VERSION}</div></div></body></html>`;
 }

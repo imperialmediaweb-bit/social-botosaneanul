@@ -7,8 +7,14 @@ import { postToPage, postPhotoToPage, postAlbumToPage, commentOnPost, postStoryI
 import { composeStoryImage, composeBrandCard, fetchUsableImage } from "./lib/storyImage.js";
 
 const LOCK_NAME = "social-post";
-// max 1 postare / N min / pagină (THROTTLE_MINUTES în env pentru alt ritm)
-const THROTTLE_MINUTES = parseInt(process.env.THROTTLE_MINUTES || "15", 10);
+// Ritmul: max 1 postare per rulare de cron (cronul vine la 5 min) — redacția
+// vrea articolul pe pagină IMEDIAT ce apare pe site. Pragul e 4, nu 5:
+// rularea vine la fix 5 min după precedenta, iar cu prag 5 ar vedea „4,9 min
+// de la postare" și ar sări degeaba încă o tură. (THROTTLE_MINUTES în env
+// pentru alt ritm — ex. 14 pentru distanțare de ~15 min între postări.)
+const THROTTLE_MINUTES = parseInt(process.env.THROTTLE_MINUTES || "4", 10);
+// „proaspăt" = publicat în ultimele N ore: are prioritate la postare
+const FRESH_WINDOW_HOURS = parseInt(process.env.FRESH_WINDOW_HOURS || "3", 10);
 const QUARANTINE_MINUTES = 20; // anti ghost-post: fără retry 20 min după orice tentativă
 const DRY_RUN_MAX_ITEMS = 5;
 // doar articole proaspete: mai vechi de atât (ore) nu se postează niciodată
@@ -205,12 +211,21 @@ async function processSite(site, { force, dry }) {
     [pageId, QUARANTINE_MINUTES]
   );
 
-  // Postăm în ORDINEA PUBLICĂRII (cel mai vechi articol nou primul). Feed-ul
-  // vine invers cronologic — fără sortare, la o rafală de articole publicate
-  // la câteva minute distanță, primul publicat ajunge mereu la coada cozii.
+  // Coadă cu PRIORITATE în două trepte:
+  //  1. articolele PROASPETE (ultimele FRESH_WINDOW_HOURS ore) — știrile de
+  //     acum, pe care redacția le așteaptă pe pagină imediat;
+  //  2. restanțele (ex. cele adunate peste noapte, cât orarul era închis).
+  // Fiecare treaptă în ORDINEA PUBLICĂRII (feed-ul vine invers cronologic —
+  // fără sortare, la o rafală primul publicat ajungea mereu la coada cozii).
+  // Fără treapta de prioritate, la 6:00 dimineața știrile noi ar aștepta
+  // după toată restanța nopții, câte un articol la 15 minute.
+  const isFresh = (it) =>
+    it.publishedAt && Date.now() - it.publishedAt.getTime() <= FRESH_WINDOW_HOURS * 3600 * 1000;
   const queue = items
     .filter((it) => !tooOld(it))
-    .sort((a, b) => (a.publishedAt?.getTime() ?? 0) - (b.publishedAt?.getTime() ?? 0));
+    .sort((a, b) =>
+      ((isFresh(b) ? 1 : 0) - (isFresh(a) ? 1 : 0)) ||
+      ((a.publishedAt?.getTime() ?? 0) - (b.publishedAt?.getTime() ?? 0)));
 
   const dryReport = [];
   let failures = 0;

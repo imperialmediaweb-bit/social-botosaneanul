@@ -4,11 +4,12 @@ import { ensureSchema } from "./db.js";
 import { runSocialPost } from "./cron.js";
 import { seedSitesFromEnv } from "./sites.js";
 import { admin } from "./admin.js";
+import { APP_VERSION } from "./version.js";
 
 const app = express();
 
 app.get("/", (_req, res) => {
-  res.json({ ok: true, service: "social-botosaneanul", admin: "/admin" });
+  res.json({ ok: true, service: "social-botosaneanul", version: APP_VERSION, admin: "/admin" });
 });
 
 app.use("/admin", admin);

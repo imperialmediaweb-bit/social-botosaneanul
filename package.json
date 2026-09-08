@@ -7,7 +7,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node test/incident-articole-in-rafala.test.mjs && node test/cascada-si-panou.test.mjs && node test/titlu-original.test.mjs"
+    "test": "node test/incident-articole-in-rafala.test.mjs && node test/cascada-si-panou.test.mjs && node test/titlu-original.test.mjs && node test/dimineata-prioritate.test.mjs"
   },
   "engines": {
     "node": ">=20"
