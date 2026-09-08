@@ -70,10 +70,11 @@ export async function maybePostStory(site, pageId, token) {
   }
 }
 
-// Orar de postare (ora României). Default 6→22; pentru NON-STOP setează în
-// env BUSINESS_HOURS_START=0 și BUSINESS_HOURS_END=24.
-const BH_START = parseInt(process.env.BUSINESS_HOURS_START || "6", 10);
-const BH_END = parseInt(process.env.BUSINESS_HOURS_END || "22", 10);
+// Orar de postare (ora României). Default NON-STOP (0→24): articolul apare
+// pe Facebook imediat ce e publicat pe site, la orice oră. Pentru un orar
+// limitat setează în env BUSINESS_HOURS_START/BUSINESS_HOURS_END (ex. 6/22).
+const BH_START = parseInt(process.env.BUSINESS_HOURS_START || "0", 10);
+const BH_END = parseInt(process.env.BUSINESS_HOURS_END || "24", 10);
 
 function isBusinessHoursRomania() {
   if (BH_START === BH_END || (BH_START <= 0 && BH_END >= 24)) return true; // non-stop
