@@ -120,12 +120,20 @@ export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "")
       for (const img of ld.images) pushTrusted(img);
       if (ld.body) articleText = ld.body;
 
+      // Pașii 5-7 caută taguri HTML; scripturile/stilurile/comentariile pot
+      // conține texte ca "<article>" (ex. traducerile WordPress din JS) care
+      // ar fi luate drept container și ar trage înăuntru toată bara laterală.
+      const markup = html
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<!--[\s\S]*?-->/g, "");
+
       // 5) containerele articolului (toate aparițiile, extrase balansat)
       const reBody = /<(?:div|section|article)[^>]+(?:itemprop=["']articleBody["']|class=["'][^"']*(?:entry-content|post-content|article-content|article-body|td-post-content|single-content|story-body|post-body|content-article|article-context)[^"']*["'])[^>]*>|<(?:div|section)[^>]+class=["'](?:[^"']*\s)?content(?:\s[^"']*)?["'][^>]*>|<article[\s>]/gi;
       let b;
       let containers = 0;
-      while ((b = reBody.exec(html)) !== null && containers < 8) {
-        const slice = sliceBalanced(html, b.index);
+      while ((b = reBody.exec(markup)) !== null && containers < 8) {
+        const slice = sliceBalanced(markup, b.index);
         collectFromHtml(slice, pushPage);
         // fallback pentru text: cel mai lung container de articol găsit
         if (!articleText) {
@@ -136,13 +144,13 @@ export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "")
       }
 
       // 6) containerele de galerie, doar după titlul articolului
-      const h1At = html.search(/<h1[\s>]/i);
+      const h1At = markup.search(/<h1[\s>]/i);
       const reGal = /<(?:div|ul|section|figure)[^>]+(?:class|id)=["'][^"']*(?:galerie|gallery|image-gallery|photoswipe|lightgallery|fotorama|swiper)[^"']*["'][^>]*>/gi;
       let g;
       let galleries = 0;
-      while ((g = reGal.exec(html)) !== null && galleries < 8) {
+      while ((g = reGal.exec(markup)) !== null && galleries < 8) {
         if (h1At === -1 || g.index > h1At) {
-          collectFromHtml(sliceBalanced(html, g.index), pushPage);
+          collectFromHtml(sliceBalanced(markup, g.index), pushPage);
           galleries++;
         }
       }
@@ -150,7 +158,7 @@ export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "")
       // 7) linkurile de lightbox ale galeriei (<a data-gallery=... href=...>)
       const reLb = /<a[^>]+data-gallery=[^>]*>/gi;
       let lb;
-      while ((lb = reLb.exec(html)) !== null) {
+      while ((lb = reLb.exec(markup)) !== null) {
         const href = /href=["']([^"']+)["']/i.exec(lb[0]);
         if (href && IMG_EXT.test(href[1])) pushPage(href[1]);
       }
