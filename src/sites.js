@@ -59,7 +59,7 @@ export async function upsertSite({ slug, name, feed_url, fb_page_id, fb_access_t
      ON CONFLICT (slug) DO UPDATE SET
        name = EXCLUDED.name,
        feed_url = EXCLUDED.feed_url,
-       fb_page_id = EXCLUDED.fb_page_id,
+       fb_page_id = CASE WHEN EXCLUDED.fb_page_id = '' THEN sites.fb_page_id ELSE EXCLUDED.fb_page_id END,
        fb_access_token = CASE WHEN EXCLUDED.fb_access_token = '' THEN sites.fb_access_token ELSE EXCLUDED.fb_access_token END,
        openai_api_key = CASE WHEN EXCLUDED.openai_api_key = '' THEN sites.openai_api_key ELSE EXCLUDED.openai_api_key END,
        exclude_pattern = EXCLUDED.exclude_pattern,
