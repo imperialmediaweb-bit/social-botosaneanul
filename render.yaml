@@ -1,0 +1,38 @@
+# Render Blueprint: aplicația + baza de date Postgres, dintr-un singur click.
+# Render → New → Blueprint → alegi acest repo. Cheile marcate „sync: false"
+# le completezi tu în formular; parolele de cron și admin se generează singure.
+databases:
+  - name: social-db
+    plan: free
+    region: frankfurt
+    databaseName: social
+    user: social
+
+services:
+  - type: web
+    name: social-botosaneanul
+    runtime: docker
+    plan: free
+    region: frankfurt
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: social-db
+          property: connectionString
+      - key: DATABASE_SSL
+        value: "0"
+      - key: CRON_SECRET
+        generateValue: true
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: BOTOSANEANUL_FB_PAGE_ID
+        sync: false
+      - key: BOTOSANEANUL_FB_ACCESS_TOKEN
+        sync: false
+      - key: FB_APP_ID
+        sync: false
+      - key: FB_APP_SECRET
+        sync: false
