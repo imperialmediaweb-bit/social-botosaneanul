@@ -14,23 +14,27 @@ function escXml(s) {
 
 // împarte titlul în rânduri de maxim ~26 caractere, maxim 5 rânduri
 function wrapTitle(title, maxChars = 26, maxLines = 5) {
-  const words = String(title || "").trim().split(/\s+/);
+  const words = String(title || "").trim().split(/\s+/).filter(Boolean);
   const lines = [];
   let line = "";
-  for (const w of words) {
-    if ((line + " " + w).trim().length > maxChars && line) {
+  let i = 0;
+  for (; i < words.length; i++) {
+    const next = line ? `${line} ${words[i]}` : words[i];
+    if (next.length > maxChars && line) {
       lines.push(line);
-      line = w;
-      if (lines.length === maxLines - 1) break;
+      if (lines.length === maxLines) break;
+      line = words[i];
     } else {
-      line = (line + " " + w).trim();
+      line = next;
     }
   }
-  if (line && lines.length < maxLines) lines.push(line);
-  // dacă titlul a fost tăiat, adaugă „…" pe ultimul rând
-  const used = lines.join(" ").length;
-  if (used < String(title || "").trim().length && lines.length) {
-    lines[lines.length - 1] = lines[lines.length - 1].replace(/\s*\S*$/, "") + "…";
+  if (i === words.length && line) lines.push(line);
+  // titlu tăiat: „…" lipit de ultimul rând (scurtat cât să încapă), ca să
+  // nu rămână niciodată singur pe un rând
+  if (i < words.length && lines.length) {
+    let last = lines[lines.length - 1];
+    while (last.includes(" ") && last.length + 1 > maxChars) last = last.replace(/\s+\S+$/, "");
+    lines[lines.length - 1] = `${last.replace(/[\s,;:.–-]+$/, "")}…`;
   }
   return lines;
 }

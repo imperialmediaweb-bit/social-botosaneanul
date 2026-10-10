@@ -1,6 +1,7 @@
 import { decodeEntities } from "./entities.js";
 
 const IMG_BLACKLIST = /logo|avatar|icon|emoji|gravatar|pixel|badge|banner-|widget|sprite|placeholder|blank\.|spacer|zodiac|-flag\.|favicon|netopia|trafic-ro|google-news|\.svg(\?|$)/i;
+const AGGREGATOR_HOSTS = /(?:^|\.)(?:google\.[a-z.]+|news\.google\.com|facebook\.com|fb\.com|instagram\.com|twitter\.com|x\.com|t\.co|youtube\.com|youtu\.be|tiktok\.com|linkedin\.com|msn\.com|yahoo\.com|flipboard\.com)$/i;
 const IMG_EXT = /\.(jpe?g|png|webp|gif)(\?|$)/i;
 
 // Extrage galeria articolului. REGULA DE AUR: mai bine mai puține poze decât
@@ -132,8 +133,10 @@ export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "")
       const reBody = /<(?:div|section|article)[^>]+(?:itemprop=["']articleBody["']|class=["'][^"']*(?:entry-content|post-content|article-content|article-body|td-post-content|single-content|story-body|post-body|content-article|article-context)[^"']*["'])[^>]*>|<(?:div|section)[^>]+class=["'](?:[^"']*\s)?content(?:\s[^"']*)?["'][^>]*>|<article[\s>]/gi;
       let b;
       let containers = 0;
+      const bodySlices = [];
       while ((b = reBody.exec(markup)) !== null && containers < 8) {
         const slice = sliceBalanced(markup, b.index);
+        bodySlices.push(slice);
         collectFromHtml(slice, pushPage);
         // fallback pentru text: cel mai lung container de articol găsit
         if (!articleText) {
@@ -163,6 +166,18 @@ export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "")
         if (href && IMG_EXT.test(href[1])) pushPage(href[1]);
       }
       // FĂRĂ fallback pe toată pagina.
+
+      // 8) articol preluat, FĂRĂ nicio poză (ex. YesComment preia de la
+      //    HotNews): poza e cea a articolului ORIGINAL, din og:image-ul
+      //    paginii spre care trimite linkul de atribuire din corpul
+      //    articolului („Citește mai mult pe…" / „Sursa…").
+      if (urls.length === 0) {
+        const src = sourceLink(bodySlices.join(""), siteDomain);
+        if (src) {
+          const ogImg = await fetchOgImage(src);
+          if (ogImg) pushTrusted(ogImg);
+        }
+      }
     }
   } catch {
     /* rămânem cu ce avem din feed */
@@ -173,6 +188,43 @@ export async function extractGallery(articleUrl, feedContentHtml, mediaUrl = "")
     text: articleText,
     title: articleTitle,
   };
+}
+
+// Linkul de atribuire spre articolul original: un <a> extern al cărui text
+// spune explicit că acolo e sursa („Citește mai mult pe…", „Sursa…").
+function sourceLink(html, siteDomain) {
+  const re = /<a[^>]+href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m;
+  while ((m = re.exec(html || "")) !== null) {
+    const text = stripToText(m[2]);
+    if (!/cite[sș]te mai mult|cite[sș]te (?:tot|articolul)|^sursa\b|^source\b|articolul original/i.test(text)) continue;
+    try {
+      const host = new URL(decodeEntities(m[1])).hostname;
+      if (siteDomain && (host === siteDomain || host.endsWith(`.${siteDomain}`))) continue;
+      // agregatoarele/rețelele nu sunt articolul original: og:image-ul lor e
+      // sigla platformei (ex. Google News), nu poza știrii
+      if (AGGREGATOR_HOSTS.test(host)) continue;
+      return decodeEntities(m[1]);
+    } catch { /* URL invalid */ }
+  }
+  return "";
+}
+
+async function fetchOgImage(url) {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return "";
+    const html = await res.text();
+    const og = /<meta[^>]+property=["']og:image(?::url)?["'][^>]+content=["']([^"']+)["']/i.exec(html)
+      || /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::url)?["']/i.exec(html);
+    const img = og ? decodeEntities(og[1]) : "";
+    return /googleusercontent\.com|gstatic\.com|fbcdn\.net|twimg\.com/i.test(img) ? "" : img;
+  } catch {
+    return "";
+  }
 }
 
 function stripToText(html) {
