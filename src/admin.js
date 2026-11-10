@@ -753,14 +753,16 @@ admin.post("/sites/:slug/run-now", async (req, res) => {
   const r = result.results?.[0] || result;
   let body;
   if (r.posted) {
-    const c = r.posted.comment === "ok"
+    const c = r.posted.mode === "link"
+      ? `<div class="alert ok">🔗 Postare clasică cu link (cardul cu poza articolului apare în postare).</div>`
+      : r.posted.comment === "ok"
       ? `<div class="alert ok">💬 Linkul articolului a fost pus în primul comentariu.</div>`
       : `<div class="alert err">⚠ Postarea a mers, dar comentariul cu linkul a EȘUAT: ${esc(String(r.posted.comment || "").slice(0, 200))}
          <br><small>De obicei lipsește permisiunea de comentarii — apasă „Conectează cu Facebook" și releagă pagina.</small></div>`;
     const st = r.posted.story === "ok" ? `<div class="alert ok">📱 Publicat și pe Story.</div>`
       : r.posted.story === "limit" ? `<div class="alert warn">📱 Story sărit — limita zilnică de Story-uri a fost atinsă.</div>`
       : r.posted.story && r.posted.story !== "off" ? `<div class="alert warn">📱 Story eșuat: ${esc(String(r.posted.story).slice(0, 150))}</div>` : "";
-    body = `<div class="alert ok">✓ Postat: <b>${esc(r.posted.title)}</b> (${r.posted.photos} poze)</div>${c}${st}
+    body = `<div class="alert ok">✓ Postat: <b>${esc(r.posted.title)}</b>${r.posted.mode === "link" ? "" : ` (${r.posted.photos} poze)`}</div>${c}${st}
       <a class="btn primary" href="https://www.facebook.com/${esc(r.posted.fbPostId)}" target="_blank">Vezi postarea pe Facebook ↗</a>`;
   } else if (r.skipped) {
     body = `<div class="alert warn">Sărit: ${esc(String(r.skipped))}</div>`;
