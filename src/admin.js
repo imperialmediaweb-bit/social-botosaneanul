@@ -657,6 +657,13 @@ admin.get("/sites/:slug/style", async (req, res) => {
         <span><b>Adaugă rândul „📌 Detalii complete în primul comentariu 👇"</b><br>
         <small class="muted">Se aplică la titlul original: bifat = titlul + rândul cu 📌; debifat = doar titlul.</small></span>
       </label>
+      <label class="check-row">
+        <input type="checkbox" name="link_post" value="1" ${s.link_post ? "checked" : ""}>
+        <span><b>Postare clasică cu link (ca dlvr.it)</b><br>
+        <small class="muted">Postarea = titlul articolului + hashtag-urile de mai jos, cu linkul în postare (card de previzualizare al site-ului). Fără poză separată și fără comentariu. Are prioritate față de bifele de mai sus.</small></span>
+      </label>
+      <label>Hashtag-uri pentru postarea cu link <small>(opțional)</small></label>
+      <input name="hashtags" value="${esc(s.hashtags || "")}" placeholder="#botosani #stiribotosani #botosaneanul">
       <label>Indicații de stil pentru AI <small>(se aplică doar cu bifa de mai sus debifată)</small></label>
       <textarea name="style_prompt" rows="4" placeholder="ex: Ton jurnalistic sobru. Două propoziții. Fără emoji la subiectele grave.">${esc(s.style_prompt || "")}</textarea>
       <div class="preset-row">${presets}</div>
@@ -685,8 +692,9 @@ admin.post("/sites/:slug/style", async (req, res) => {
   const s = await getSite(req.params.slug);
   if (s) {
     await pool.query(
-      `UPDATE sites SET style_prompt = $2, use_original_title = $3, details_line = $4, updated_at = NOW() WHERE slug = $1`,
-      [s.slug, (req.body.style_prompt || "").trim().slice(0, 1000), req.body.use_original_title === "1", req.body.details_line === "1"]
+      `UPDATE sites SET style_prompt = $2, use_original_title = $3, details_line = $4, link_post = $5, hashtags = $6, updated_at = NOW() WHERE slug = $1`,
+      [s.slug, (req.body.style_prompt || "").trim().slice(0, 1000), req.body.use_original_title === "1", req.body.details_line === "1",
+       req.body.link_post === "1", (req.body.hashtags || "").trim().slice(0, 300)]
     );
   }
   res.redirect(s ? `/admin/sites/${s.slug}` : "/admin");

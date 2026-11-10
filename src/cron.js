@@ -282,14 +282,18 @@ async function processSite(site, { force, dry }) {
     // e doar fallback — rezumatele sărace duc la halucinații AI
     // bifa „Folosește titlul original" → postarea e titlul articolului;
     // a doua bifă (details_line) adaugă opțional rândul cu 📌
-    const caption = site.use_original_title
+    // „Postare clasică cu link" (ca dlvr.it): titlul + hashtag-uri, iar
+    // linkul merge în postare (card de previzualizare), fără comentariu
+    const caption = site.link_post
+      ? [item.title, (site.hashtags || "").trim()].filter(Boolean).join(" ")
+      : site.use_original_title
       ? (site.details_line ? `${item.title}\n\n${DETAILS_LINE}` : item.title)
       : (await aiCaption(site, item.title, media.text || item.contentEncoded || item.description, item.publishedAt)) ||
         fallbackCaption(item.title);
 
     if (dry) {
       // DRY-RUN: raportează ce AR posta și eliberează claim-ul.
-      dryReport.push({ title: item.title, link: item.link, caption, gallery });
+      dryReport.push({ title: item.title, link: item.link, caption, ...(site.link_post ? { mode: "link" } : { gallery }) });
       await pool.query(
         `DELETE FROM external_fb_posts WHERE page_id = $1 AND item_url = $2 AND fb_post_id IS NULL`,
         [pageId, item.link]
@@ -304,6 +308,16 @@ async function processSite(site, { force, dry }) {
       // trecem la următoarea în loc să eșuăm articolul.
       let fbPostId = null;
       const attempts = [];
+
+      if (site.link_post) {
+        fbPostId = (await postToPage(pageId, token, caption, item.link)).id;
+        await pool.query(
+          `UPDATE external_fb_posts SET fb_post_id = $3, posted_at = NOW(), last_error = NULL
+           WHERE page_id = $1 AND item_url = $2`,
+          [pageId, item.link, fbPostId]
+        );
+        return { ...out, posted: { title: item.title, link: item.link, fbPostId, mode: "link" } };
+      }
 
       if (gallery.length >= 2) {
         try {
