@@ -660,7 +660,7 @@ admin.get("/sites/:slug/style", async (req, res) => {
       <label class="check-row">
         <input type="checkbox" name="link_post" value="1" ${s.link_post ? "checked" : ""}>
         <span><b>Postare clasică cu link (ca dlvr.it)</b><br>
-        <small class="muted">Postarea = titlul articolului + hashtag-urile de mai jos, cu linkul în postare (card de previzualizare al site-ului). Fără poză separată și fără comentariu. Are prioritate față de bifele de mai sus.</small></span>
+        <small class="muted">Postarea = titlul original (dacă e bifat mai sus) sau textul AI, + hashtag-urile de mai jos, cu linkul în postare (card de previzualizare al site-ului). Fără poză separată și fără comentariu. Are prioritate față de bifele de mai sus.</small></span>
       </label>
       <label>Hashtag-uri pentru postarea cu link <small>(opțional)</small></label>
       <input name="hashtags" value="${esc(s.hashtags || "")}" placeholder="#botosani #stiribotosani #botosaneanul">

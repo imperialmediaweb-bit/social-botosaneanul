@@ -48,7 +48,7 @@ const check = (n, c, x = "") => { if (c) { pass++; console.log(`  ✔ ${n}`); } 
 
 const dry = (await runSocialPost({ siteSlug: "ziar", dry: true })).results[0];
 check("dry-run arată modul link și textul titlu + hashtag-uri",
-  dry.wouldPost?.[0]?.mode === "link" && dry.wouldPost[0].caption === "Stire Importanta De Test #botosani #stiribotosani", JSON.stringify(dry));
+  dry.wouldPost?.[0]?.mode === "link" && dry.wouldPost[0].caption === "Stire Importanta De Test\n\n#botosani #stiribotosani", JSON.stringify(dry));
 
 const r = (await runSocialPost({ siteSlug: "ziar" })).results[0];
 check("postarea cu link s-a publicat", r.posted?.mode === "link", JSON.stringify(r));
@@ -59,6 +59,10 @@ check("fără comentariu cu linkul", !calls.some((c) => c.tag.includes("/comment
 const r2 = (await runSocialPost({ siteSlug: "clasic" })).results[0];
 check("pagina fără bifă postează tot cu poză + comentariu",
   calls.some((c) => c.tag === "P2/photos") && calls.some((c) => c.tag.endsWith("/comments")), JSON.stringify(r2) + JSON.stringify(calls));
+
+const { stripCommentLines } = await import("../src/cron.js");
+check("textul AI e curățat de rândul cu „primul comentariu”",
+  stripCommentLines("Primăria a votat bugetul.\n\n📌 Detalii complete în primul comentariu 👇") === "Primăria a votat bugetul.");
 
 console.log(`\nREZULTAT: ${pass} ✔ / ${fail} ✘`);
 await pool.end();

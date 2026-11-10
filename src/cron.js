@@ -104,6 +104,16 @@ function isExcluded(site, item, articleText = "") {
   }
 }
 
+// la postarea cu link nu există comentariu: scoatem rândurile care trimit acolo
+export function stripCommentLines(text) {
+  return String(text || "")
+    .split("\n")
+    .filter((l) => !/primul comentariu|în comentariu|comentariul de mai jos/i.test(l))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export async function runSocialPost({ siteSlug = null, force = false, dry = false } = {}) {
   // dry/force pot rula și în afara orelor 06-22 (pentru testare)
   if (!isBusinessHoursRomania() && !force && !dry) {
@@ -282,10 +292,17 @@ async function processSite(site, { force, dry }) {
     // e doar fallback — rezumatele sărace duc la halucinații AI
     // bifa „Folosește titlul original" → postarea e titlul articolului;
     // a doua bifă (details_line) adaugă opțional rândul cu 📌
-    // „Postare clasică cu link" (ca dlvr.it): titlul + hashtag-uri, iar
-    // linkul merge în postare (card de previzualizare), fără comentariu
+    // „Postare clasică cu link" (ca dlvr.it): linkul merge în postare (card
+    // de previzualizare), fără comentariu. Textul = titlul original (bifa
+    // „titlu original") sau textul AI, curățat de rândul despre comentariu;
+    // la final, hashtag-urile paginii.
     const caption = site.link_post
-      ? [item.title, (site.hashtags || "").trim()].filter(Boolean).join(" ")
+      ? [
+          site.use_original_title
+            ? item.title
+            : stripCommentLines((await aiCaption(site, item.title, media.text || item.contentEncoded || item.description, item.publishedAt)) || item.title),
+          (site.hashtags || "").trim(),
+        ].filter(Boolean).join("\n\n")
       : site.use_original_title
       ? (site.details_line ? `${item.title}\n\n${DETAILS_LINE}` : item.title)
       : (await aiCaption(site, item.title, media.text || item.contentEncoded || item.description, item.publishedAt)) ||
