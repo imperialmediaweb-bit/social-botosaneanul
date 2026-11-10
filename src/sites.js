@@ -20,6 +20,25 @@ const DEFAULT_SITES = [
     fb_access_token: process.env.MARTOR_FB_ACCESS_TOKEN || "",
     openai_api_key: process.env.MARTOR_OPENAI_API_KEY || "",
   },
+  {
+    // Pagina Ziarul Botoșăneanul: același feed, dar DOAR știrile importante
+    // (categoriile de mai jos). Se postează abia după ce pagina e conectată.
+    slug: "ziarul-botosaneanul",
+    name: "Ziarul Botoșăneanul",
+    feed_url: "https://www.botosaneanul.ro/rss",
+    fb_page_id: "",
+    fb_access_token: "",
+    openai_api_key: "",
+    include_pages: [
+      "https://www.botosaneanul.ro/ancheta-saptamanii",
+      "https://www.botosaneanul.ro/stirea-zilei",
+      "https://www.botosaneanul.ro/breaking-news",
+      "https://www.botosaneanul.ro/top-news",
+      "https://www.botosaneanul.ro/blog",
+      "https://www.botosaneanul.ro/reportaj",
+      "https://www.botosaneanul.ro/interviuri",
+    ].join("\n"),
+  },
 ];
 
 // Site-urile default lipsă se adaugă la fiecare pornire, iar câmpurile GOALE
@@ -28,13 +47,13 @@ const DEFAULT_SITES = [
 export async function seedSitesFromEnv() {
   for (const s of DEFAULT_SITES) {
     await pool.query(
-      `INSERT INTO sites (slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, active)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE)
+      `INSERT INTO sites (slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, include_pages, active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
        ON CONFLICT (slug) DO UPDATE SET
          fb_page_id = CASE WHEN sites.fb_page_id = '' THEN EXCLUDED.fb_page_id ELSE sites.fb_page_id END,
          fb_access_token = CASE WHEN sites.fb_access_token = '' THEN EXCLUDED.fb_access_token ELSE sites.fb_access_token END,
          openai_api_key = CASE WHEN sites.openai_api_key = '' THEN EXCLUDED.openai_api_key ELSE sites.openai_api_key END`,
-      [s.slug, s.name, s.feed_url, s.fb_page_id, s.fb_access_token, s.openai_api_key]
+      [s.slug, s.name, s.feed_url, s.fb_page_id, s.fb_access_token, s.openai_api_key, s.include_pages || ""]
     );
   }
 }
@@ -51,11 +70,11 @@ export async function getSite(slug) {
   return rows[0] || null;
 }
 
-export async function upsertSite({ slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern, style_prompt }) {
+export async function upsertSite({ slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern, style_prompt, include_pages }) {
   // câmpurile secrete goale la editare = păstrează valoarea existentă
   await pool.query(
-    `INSERT INTO sites (slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern, style_prompt, active)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)
+    `INSERT INTO sites (slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern, style_prompt, include_pages, active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)
      ON CONFLICT (slug) DO UPDATE SET
        name = EXCLUDED.name,
        feed_url = EXCLUDED.feed_url,
@@ -64,8 +83,9 @@ export async function upsertSite({ slug, name, feed_url, fb_page_id, fb_access_t
        openai_api_key = CASE WHEN EXCLUDED.openai_api_key = '' THEN sites.openai_api_key ELSE EXCLUDED.openai_api_key END,
        exclude_pattern = EXCLUDED.exclude_pattern,
        style_prompt = EXCLUDED.style_prompt,
+       include_pages = EXCLUDED.include_pages,
        updated_at = NOW()`,
-    [slug, name, feed_url, fb_page_id, fb_access_token || "", openai_api_key || "", exclude_pattern || "", style_prompt || ""]
+    [slug, name, feed_url, fb_page_id, fb_access_token || "", openai_api_key || "", exclude_pattern || "", style_prompt || "", include_pages || ""]
   );
 }
 

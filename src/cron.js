@@ -5,6 +5,7 @@ import { extractGallery } from "./lib/gallery.js";
 import { aiCaption, fallbackCaption, DETAILS_LINE } from "./lib/caption.js";
 import { postToPage, postPhotoToPage, postAlbumToPage, commentOnPost, postStoryImageToPage, postPhotoBufferToPage } from "./lib/fb.js";
 import { composeStoryImage, composeBrandCard, fetchUsableImage } from "./lib/storyImage.js";
+import { fetchAllowedLinks, normalizeUrl, parseIncludePages } from "./lib/categories.js";
 
 const LOCK_NAME = "social-post";
 // Ritmul: max 1 postare per rulare de cron (cronul vine la 5 min) — redacția
@@ -187,6 +188,19 @@ async function processSite(site, { force, dry }) {
         note: "prima activare: articolele existente au fost marcate ca văzute, fără postare — de acum se postează doar ce apare NOU în feed",
       };
     }
+  }
+
+  // Filtru de INCLUDERE pe categorii (ex. Ziarul Botoșăneanul: doar știrile
+  // importante). Articolele din afara categoriilor nu se marchează în niciun
+  // fel: dacă pagina de categorie e încă în cache și nu-l arată, articolul
+  // rămâne în feed și intră la rularea următoare.
+  const includePages = parseIncludePages(site.include_pages);
+  if (includePages.length) {
+    const { allowed, ok, errors } = await fetchAllowedLinks(includePages);
+    if (errors.length) out.includeErrors = errors;
+    if (ok === 0) return { ...out, error: "categorii: nicio pagină de categorie nu s-a putut citi — nu postez nimic" };
+    items = items.filter((it) => allowed.has(normalizeUrl(it.link)));
+    out.feedItemsInCategories = items.length;
   }
 
   // Articolele care au eșuat repetat până au ieșit din fereastra de 24h nu mai

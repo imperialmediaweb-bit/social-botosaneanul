@@ -4,6 +4,7 @@ import { pool } from "./db.js";
 import { getSites, getSite, upsertSite, setSiteActive, deleteSite } from "./sites.js";
 import { runSocialPost } from "./cron.js";
 import { APP_VERSION } from "./version.js";
+import { parseIncludePages } from "./lib/categories.js";
 
 export const admin = express.Router();
 
@@ -378,6 +379,8 @@ function siteForm(s = {}, isNew = true) {
       <input name="openai_api_key" value="" placeholder="${s.openai_api_key ? "•••• setată" : "sk-... (opțional)"}">
       <label>Excludere articole <small>(cuvânt sau regex; articolele care îl conțin în titlu/text/sursă NU se postează — ex: <b>hotnews</b>)</small></label>
       <input name="exclude_pattern" value="${esc(s.exclude_pattern || "")}" placeholder="ex: hotnews">
+      <label>Doar categoriile <small>(opțional; câte un link de pagină de categorie pe rând — se postează DOAR articolele care apar în aceste categorii; gol = toate articolele)</small></label>
+      <textarea name="include_pages" rows="4" placeholder="https://www.botosaneanul.ro/stirea-zilei">${esc(s.include_pages || "")}</textarea>
       <label>Stilul postărilor — instrucțiuni pentru AI <small>(scrie liber cum vrei să sune postările; ex: „mai lungi, ton serios de presă, fără emoji" sau „scurte și energice, cu emoji"). Regulile de siguranță (fără fapte inventate, fără nume) rămân mereu active.</small></label>
       <textarea name="style_prompt" rows="3" placeholder="ex: Ton jurnalistic sobru. Două propoziții. Fără emoji la subiectele grave.">${esc(s.style_prompt || "")}</textarea>
       <div class="form-actions">
@@ -480,6 +483,7 @@ admin.get("/sites/:slug", async (req, res) => {
       </div>
       <div class="site-meta">
         <span title="Feed">📡 ${esc(s.feed_url)}</span>
+        ${(s.include_pages || "").trim() ? `<span title="Doar categoriile">🎯 doar ${(s.include_pages || "").trim().split(/\s+/).length} categorii</span>` : ""}
         ${s.exclude_pattern ? `<span title="Filtru de excludere">🚫 exclude: <b>${esc(s.exclude_pattern)}</b></span>` : ""}
         ${(s.style_prompt || "").trim() ? `<span title="Stil personalizat">✍️ stil personalizat setat</span>` : ""}
       </div>
@@ -530,7 +534,7 @@ admin.get("/sites/:slug/edit", adminOnly, async (req, res) => {
 });
 
 admin.post("/sites", adminOnly, async (req, res) => {
-  const { slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern, style_prompt } = req.body;
+  const { slug, name, feed_url, fb_page_id, fb_access_token, openai_api_key, exclude_pattern, style_prompt, include_pages } = req.body;
   if (!/^[a-z0-9-]+$/.test(slug || "")) {
     return res.status(400).send(page("Eroare", `<div class="card"><div class="alert err">Slug invalid.</div><a class="btn" href="/admin">← Înapoi</a></div>`));
   }
@@ -541,6 +545,7 @@ admin.post("/sites", adminOnly, async (req, res) => {
     openai_api_key: (openai_api_key || "").trim(),
     exclude_pattern: (exclude_pattern || "").trim(),
     style_prompt: (style_prompt || "").trim().slice(0, 1000),
+    include_pages: parseIncludePages(include_pages).slice(0, 20).join("\n"),
   });
   res.redirect("/admin");
 });
