@@ -652,9 +652,47 @@ const FORMAT_OPTIONS = [
     help: "Poza articolului mare, ca postare foto, iar linkul e scris direct în text („👉 Citește articolul: …”). Fără comentariu." },
 ];
 
+// Machetă de postare Facebook pentru fiecare formă (previzualizare în panou).
+// Textul e titlul articolului (exemplu); poza e cea din feed, dacă există.
+function fbMock(format, { siteName, title, img, link, hashtags }) {
+  const host = (() => { try { return new URL(link).hostname.replace(/^www\./, "").toUpperCase(); } catch { return ""; } })();
+  const pic = img
+    ? `<img class="fbm-img" src="${esc(img)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\\'fbm-img fbm-ph\\'>poza articolului</div>'">`
+    : `<div class="fbm-img fbm-ph">poza articolului</div>`;
+  const tags = (hashtags || "").trim() ? `<br><br><span class="fbm-tag">${esc(hashtags.trim())}</span>` : "";
+  const head = `<div class="fbm-head"><span class="fbm-av">${esc((siteName || "?").slice(0, 1))}</span><span><b>${esc(siteName)}</b><br><small>acum · 🌐</small></span></div>`;
+  if (format === "link_card") {
+    return `<div class="fbm">${head}<div class="fbm-text">${esc(title)}${tags}</div>
+      <div class="fbm-card">${pic}<div class="fbm-meta"><small>${esc(host)}</small><b>${esc(title)}</b></div></div>
+      <div class="fbm-foot">👍 Îmi place · 💬 Comentează · ↗ Distribuie</div></div>`;
+  }
+  if (format === "photo_link") {
+    return `<div class="fbm">${head}<div class="fbm-text">${esc(title)}<br><br>👉 Citește articolul: <span class="fbm-link">${esc(link)}</span>${tags}</div>
+      ${pic}<div class="fbm-foot">👍 Îmi place · 💬 Comentează · ↗ Distribuie</div></div>`;
+  }
+  return `<div class="fbm">${head}<div class="fbm-text">${esc(title)}</div>${pic}
+    <div class="fbm-foot">👍 Îmi place · 💬 Comentează · ↗ Distribuie</div>
+    <div class="fbm-comment"><span class="fbm-av sm">${esc((siteName || "?").slice(0, 1))}</span><span><b>${esc(siteName)}</b><br>📖 Citește articolul: <span class="fbm-link">${esc(link)}</span></span></div></div>`;
+}
+
 admin.get("/sites/:slug/style", async (req, res) => {
   const s = await getSite(req.params.slug);
   if (!s) return res.redirect("/admin");
+  // ultima știre din feed, pentru previzualizări (max 6 s; altfel exemplu generic)
+  let sample = { title: "Titlul articolului apare aici", link: "https://www.botosaneanul.ro/exemplu", img: "" };
+  try {
+    const { fetchFeedItems } = await import("./lib/rss.js");
+    const items = await Promise.race([fetchFeedItems(s.feed_url), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 6000))]);
+    if (items?.[0]) sample = { title: items[0].title, link: items[0].link, img: items[0].mediaUrl || "" };
+    if (items?.[0] && !sample.img) {
+      // poza principală (og:image) a articolului, ca în cardul de pe Facebook
+      const html = await fetch(items[0].link, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(5000) }).then((r) => r.text());
+      const m = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+        || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+      if (m) sample.img = m[1].replace(/&amp;/g, "&");
+    }
+  } catch { /* exemplu generic */ }
+  const mockArgs = { siteName: s.name, title: sample.title, img: sample.img, link: sample.link, hashtags: s.hashtags };
   const presets = STYLE_PRESETS.map((p) =>
     `<button type="button" class="btn sm preset" data-p="${esc(p.text)}">${esc(p.label)}</button>`
   ).join(" ");
@@ -674,7 +712,8 @@ admin.get("/sites/:slug/style", async (req, res) => {
       <label><b>Forma postării pe Facebook</b></label>
       ${FORMAT_OPTIONS.map((o) => `<label class="check-row">
         <input type="radio" name="post_format" value="${o.v}" ${(s.post_format || "photo_comment") === o.v ? "checked" : ""}>
-        <span><b>${o.label}</b><br><small class="muted">${o.help}</small></span>
+        <span><b>${o.label}</b><br><small class="muted">${o.help}</small>
+          <details class="fbm-wrap"><summary>👁️ Previzualizare</summary>${fbMock(o.v, mockArgs)}</details></span>
       </label>`).join("")}
       <label>Hashtag-uri la final <small>(opțional; se pun doar la „Postare clasică cu link” și „Poză + link în text”)</small></label>
       <input name="hashtags" value="${esc(s.hashtags || "")}" placeholder="#botosani #stiribotosani #botosaneanul">
@@ -905,6 +944,23 @@ function page(title, body, { bare = false, role = "admin" } = {}) {
   .empty { color: #6b7280; text-align: center; padding: 26px 10px; font-size: 14px; }
   .check-row { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; background: #f7f8fb; border: 1px solid #e6e9f0; border-radius: 10px; padding: 12px 14px; }
   .check-row input { width: auto; margin-top: 4px; }
+  .fbm-wrap summary { cursor: pointer; color: #1d4ed8; font-size: 13px; margin-top: 6px; }
+  .fbm { background: #fff; border: 1px solid #dfe3ea; border-radius: 10px; max-width: 420px; margin-top: 8px; font-size: 14px; color: #1c1e21; overflow: hidden; }
+  .fbm-head { display: flex; gap: 8px; align-items: center; padding: 10px 12px; line-height: 1.2; }
+  .fbm-head small { color: #65676b; }
+  .fbm-av { width: 36px; height: 36px; border-radius: 50%; background: #1d2b7d; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; flex: none; }
+  .fbm-av.sm { width: 28px; height: 28px; font-size: 12px; }
+  .fbm-text { padding: 0 12px 10px; white-space: normal; word-break: break-word; }
+  .fbm-img { display: block; width: 100%; aspect-ratio: 1.91 / 1; object-fit: cover; background: #e4e6eb; }
+  .fbm-ph { display: flex; align-items: center; justify-content: center; color: #65676b; font-size: 13px; }
+  .fbm-card { border-top: 1px solid #dfe3ea; }
+  .fbm-meta { background: #f0f2f5; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; }
+  .fbm-meta small { color: #65676b; font-size: 11px; }
+  .fbm-foot { border-top: 1px solid #dfe3ea; padding: 8px 12px; color: #65676b; font-size: 13px; }
+  .fbm-comment { display: flex; gap: 8px; padding: 8px 12px 12px; background: #fff; font-size: 13px; }
+  .fbm-comment > span:last-child { background: #f0f2f5; border-radius: 14px; padding: 6px 10px; }
+  .fbm-link { color: #1d4ed8; word-break: break-all; }
+  .fbm-tag { color: #1d4ed8; }
   .preset-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
   details.fine { margin-top: 18px; border-top: 1px solid #eef0f4; padding-top: 12px; color: #6b7280; font-size: 13px; }
   details.fine summary { cursor: pointer; font-weight: 600; color: #4a5568; }
