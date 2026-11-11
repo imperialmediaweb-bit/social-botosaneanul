@@ -4,6 +4,7 @@ import { ensureSchema } from "./db.js";
 import { runSocialPost } from "./cron.js";
 import { seedSitesFromEnv } from "./sites.js";
 import { admin } from "./admin.js";
+import { feed } from "./feed.js";
 import { APP_VERSION } from "./version.js";
 
 const app = express();
@@ -13,6 +14,7 @@ app.get("/", (_req, res) => {
 });
 
 app.use("/admin", admin);
+app.use("/feed", feed);
 
 app.get("/api/cron/social-post", async (req, res) => {
   const secret = process.env.CRON_SECRET;
