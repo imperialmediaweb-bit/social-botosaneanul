@@ -46,6 +46,8 @@ export async function ensureSchema() {
     ALTER TABLE sites ADD COLUMN IF NOT EXISTS details_line BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE sites ADD COLUMN IF NOT EXISTS link_post BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE sites ADD COLUMN IF NOT EXISTS hashtags TEXT NOT NULL DEFAULT '';
+    ALTER TABLE sites ADD COLUMN IF NOT EXISTS post_format TEXT NOT NULL DEFAULT 'photo_comment';
+    UPDATE sites SET post_format = 'link_card', link_post = FALSE WHERE link_post;
   `);
 }
 

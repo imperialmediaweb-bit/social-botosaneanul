@@ -492,6 +492,7 @@ admin.get("/sites/:slug", async (req, res) => {
         <form method="post" action="/admin/sites/${esc(s.slug)}/dry-run"><button class="btn">🧪 Test fără postare</button></form>
         <form method="post" action="/admin/sites/${esc(s.slug)}/run-now" onsubmit="return confirm('Postează ACUM pe Facebook primul articol nepostat de la ${esc(s.name)}. Continui?')"><button class="btn warn">🚀 Postează acum</button></form>
         <span class="flex-spacer"></span>
+        <a class="btn sm" href="/admin/sites/${esc(s.slug)}/style" title="Forma postării — se schimbă din Stil postări">${esc((FORMAT_OPTIONS.find((o) => o.v === s.post_format) || FORMAT_OPTIONS[0]).short)}</a>
         <a class="btn sm" href="/admin/sites/${esc(s.slug)}/style">✍️ Stil postări</a>
         ${req.role === "admin" ? `<a class="btn sm" href="/admin/sites/${esc(s.slug)}/edit">⚙️ Setări</a>` : ""}
         <form method="post" action="/admin/sites/${esc(s.slug)}/check"><button class="btn sm">🔍 Verifică token</button></form>
@@ -638,6 +639,19 @@ const STYLE_PRESETS = [
   { label: "Sobru la subiecte grave", text: "La accidente, decese și tragedii: ton grav, fără emoji, fără formulări care stârnesc curiozitatea. La restul știrilor: stil normal, cu cârlig." },
 ];
 
+// cele 3 forme de postare, cu explicație (apar la fiecare pagină în „Stil postări")
+const FORMAT_OPTIONS = [
+  { v: "photo_comment", short: "📷 Poză + link în comentariu",
+    label: "📷 Poză + link în primul comentariu (recomandat pentru reach)",
+    help: "Poza articolului mare, ca postare foto; linkul spre articol se pune automat în primul comentariu. Cea mai bună vizibilitate pe Facebook." },
+  { v: "link_card", short: "🔗 Postare clasică cu link",
+    label: "🔗 Postare clasică cu link (ca dlvr.it)",
+    help: "Textul + linkul în postare; Facebook arată singur cardul cu poza articolului, titlul și numele site-ului. Fără comentariu. Vizibilitate de obicei mai mică." },
+  { v: "photo_link", short: "🖼️ Poză + link în text",
+    label: "🖼️ Poză urcată + link în textul postării",
+    help: "Poza articolului mare, ca postare foto, iar linkul e scris direct în text („👉 Citește articolul: …”). Fără comentariu." },
+];
+
 admin.get("/sites/:slug/style", async (req, res) => {
   const s = await getSite(req.params.slug);
   if (!s) return res.redirect("/admin");
@@ -657,12 +671,12 @@ admin.get("/sites/:slug/style", async (req, res) => {
         <span><b>Adaugă rândul „📌 Detalii complete în primul comentariu 👇"</b><br>
         <small class="muted">Se aplică la titlul original: bifat = titlul + rândul cu 📌; debifat = doar titlul.</small></span>
       </label>
-      <label class="check-row">
-        <input type="checkbox" name="link_post" value="1" ${s.link_post ? "checked" : ""}>
-        <span><b>Postare clasică cu link (ca dlvr.it)</b><br>
-        <small class="muted">Postarea = titlul original (dacă e bifat mai sus) sau textul AI, + hashtag-urile de mai jos, cu linkul în postare (card de previzualizare al site-ului). Fără poză separată și fără comentariu. Are prioritate față de bifele de mai sus.</small></span>
-      </label>
-      <label>Hashtag-uri pentru postarea cu link <small>(opțional)</small></label>
+      <label><b>Forma postării pe Facebook</b></label>
+      ${FORMAT_OPTIONS.map((o) => `<label class="check-row">
+        <input type="radio" name="post_format" value="${o.v}" ${(s.post_format || "photo_comment") === o.v ? "checked" : ""}>
+        <span><b>${o.label}</b><br><small class="muted">${o.help}</small></span>
+      </label>`).join("")}
+      <label>Hashtag-uri la final <small>(opțional; se pun doar la „Postare clasică cu link” și „Poză + link în text”)</small></label>
       <input name="hashtags" value="${esc(s.hashtags || "")}" placeholder="#botosani #stiribotosani #botosaneanul">
       <label>Indicații de stil pentru AI <small>(se aplică doar cu bifa de mai sus debifată)</small></label>
       <textarea name="style_prompt" rows="4" placeholder="ex: Ton jurnalistic sobru. Două propoziții. Fără emoji la subiectele grave.">${esc(s.style_prompt || "")}</textarea>
@@ -692,9 +706,9 @@ admin.post("/sites/:slug/style", async (req, res) => {
   const s = await getSite(req.params.slug);
   if (s) {
     await pool.query(
-      `UPDATE sites SET style_prompt = $2, use_original_title = $3, details_line = $4, link_post = $5, hashtags = $6, updated_at = NOW() WHERE slug = $1`,
+      `UPDATE sites SET style_prompt = $2, use_original_title = $3, details_line = $4, post_format = $5, hashtags = $6, updated_at = NOW() WHERE slug = $1`,
       [s.slug, (req.body.style_prompt || "").trim().slice(0, 1000), req.body.use_original_title === "1", req.body.details_line === "1",
-       req.body.link_post === "1", (req.body.hashtags || "").trim().slice(0, 300)]
+       FORMAT_OPTIONS.some((o) => o.v === req.body.post_format) ? req.body.post_format : "photo_comment", (req.body.hashtags || "").trim().slice(0, 300)]
     );
   }
   res.redirect(s ? `/admin/sites/${s.slug}` : "/admin");
@@ -753,8 +767,10 @@ admin.post("/sites/:slug/run-now", async (req, res) => {
   const r = result.results?.[0] || result;
   let body;
   if (r.posted) {
-    const c = r.posted.mode === "link"
+    const c = r.posted.mode === "link_card"
       ? `<div class="alert ok">🔗 Postare clasică cu link (cardul cu poza articolului apare în postare).</div>`
+      : r.posted.mode === "photo_link"
+      ? `<div class="alert ok">🖼️ Poză + linkul scris în textul postării.</div>`
       : r.posted.comment === "ok"
       ? `<div class="alert ok">💬 Linkul articolului a fost pus în primul comentariu.</div>`
       : `<div class="alert err">⚠ Postarea a mers, dar comentariul cu linkul a EȘUAT: ${esc(String(r.posted.comment || "").slice(0, 200))}
@@ -762,7 +778,7 @@ admin.post("/sites/:slug/run-now", async (req, res) => {
     const st = r.posted.story === "ok" ? `<div class="alert ok">📱 Publicat și pe Story.</div>`
       : r.posted.story === "limit" ? `<div class="alert warn">📱 Story sărit — limita zilnică de Story-uri a fost atinsă.</div>`
       : r.posted.story && r.posted.story !== "off" ? `<div class="alert warn">📱 Story eșuat: ${esc(String(r.posted.story).slice(0, 150))}</div>` : "";
-    body = `<div class="alert ok">✓ Postat: <b>${esc(r.posted.title)}</b>${r.posted.mode === "link" ? "" : ` (${r.posted.photos} poze)`}</div>${c}${st}
+    body = `<div class="alert ok">✓ Postat: <b>${esc(r.posted.title)}</b>${r.posted.mode === "link_card" ? "" : ` (${r.posted.photos} poze)`}</div>${c}${st}
       <a class="btn primary" href="https://www.facebook.com/${esc(r.posted.fbPostId)}" target="_blank">Vezi postarea pe Facebook ↗</a>`;
   } else if (r.skipped) {
     body = `<div class="alert warn">Sărit: ${esc(String(r.skipped))}</div>`;

@@ -104,6 +104,8 @@ function isExcluded(site, item, articleText = "") {
   }
 }
 
+export const POST_FORMATS = ["photo_comment", "link_card", "photo_link"];
+
 // la postarea cu link nu există comentariu: scoatem rândurile care trimit acolo
 export function stripCommentLines(text) {
   return String(text || "")
@@ -292,15 +294,19 @@ async function processSite(site, { force, dry }) {
     // e doar fallback — rezumatele sărace duc la halucinații AI
     // bifa „Folosește titlul original" → postarea e titlul articolului;
     // a doua bifă (details_line) adaugă opțional rândul cu 📌
-    // „Postare clasică cu link" (ca dlvr.it): linkul merge în postare (card
-    // de previzualizare), fără comentariu. Textul = titlul original (bifa
-    // „titlu original") sau textul AI, curățat de rândul despre comentariu;
-    // la final, hashtag-urile paginii.
-    const caption = site.link_post
+    // Forma postării (post_format):
+    //  photo_comment = poză + link în primul comentariu (implicit)
+    //  link_card     = postare clasică cu link, ca dlvr.it (card de previzualizare)
+    //  photo_link    = poză urcată + linkul scris în textul postării
+    // La ultimele două nu există comentariu: textul AI e curățat de rândul
+    // despre comentariu, iar la final vin hashtag-urile paginii.
+    const format = POST_FORMATS.includes(site.post_format) ? site.post_format : "photo_comment";
+    const caption = format !== "photo_comment"
       ? [
           site.use_original_title
             ? item.title
             : stripCommentLines((await aiCaption(site, item.title, media.text || item.contentEncoded || item.description, item.publishedAt)) || item.title),
+          format === "photo_link" ? `👉 Citește articolul: ${item.link}` : "",
           (site.hashtags || "").trim(),
         ].filter(Boolean).join("\n\n")
       : site.use_original_title
@@ -310,7 +316,7 @@ async function processSite(site, { force, dry }) {
 
     if (dry) {
       // DRY-RUN: raportează ce AR posta și eliberează claim-ul.
-      dryReport.push({ title: item.title, link: item.link, caption, ...(site.link_post ? { mode: "link" } : { gallery }) });
+      dryReport.push({ title: item.title, link: item.link, caption, mode: format, ...(format === "link_card" ? {} : { gallery }) });
       await pool.query(
         `DELETE FROM external_fb_posts WHERE page_id = $1 AND item_url = $2 AND fb_post_id IS NULL`,
         [pageId, item.link]
@@ -326,14 +332,14 @@ async function processSite(site, { force, dry }) {
       let fbPostId = null;
       const attempts = [];
 
-      if (site.link_post) {
+      if (format === "link_card") {
         fbPostId = (await postToPage(pageId, token, caption, item.link)).id;
         await pool.query(
           `UPDATE external_fb_posts SET fb_post_id = $3, posted_at = NOW(), last_error = NULL
            WHERE page_id = $1 AND item_url = $2`,
           [pageId, item.link, fbPostId]
         );
-        return { ...out, posted: { title: item.title, link: item.link, fbPostId, mode: "link" } };
+        return { ...out, posted: { title: item.title, link: item.link, fbPostId, mode: "link_card" } };
       }
 
       if (gallery.length >= 2) {
@@ -369,12 +375,14 @@ async function processSite(site, { force, dry }) {
 
       // linkul articolului în PRIMUL COMENTARIU — bug-urile aici nu mai sunt
       // tăcute: postarea rămâne, dar raportăm de ce n-a apărut comentariul
-      let commentStatus = "ok";
-      try {
-        await commentOnPost(fbPostId, token, `📖 Citește articolul: ${item.link}`);
-      } catch (e) {
-        commentStatus = e.message;
-        console.error(`comentariu eșuat pe ${fbPostId}:`, e.message);
+      let commentStatus = format === "photo_link" ? "fara" : "ok";
+      if (format === "photo_comment") {
+        try {
+          await commentOnPost(fbPostId, token, `📖 Citește articolul: ${item.link}`);
+        } catch (e) {
+          commentStatus = e.message;
+          console.error(`comentariu eșuat pe ${fbPostId}:`, e.message);
+        }
       }
 
       await pool.query(
@@ -383,7 +391,7 @@ async function processSite(site, { force, dry }) {
         [pageId, item.link, fbPostId]
       );
 
-      return { ...out, posted: { title: item.title, link: item.link, fbPostId, photos: gallery.length, comment: commentStatus } };
+      return { ...out, posted: { title: item.title, link: item.link, fbPostId, photos: gallery.length, comment: commentStatus, mode: format } };
     } catch (e) {
       // NU ștergem claim-ul imediat (anti ghost-post): rămâne în carantină 20 min,
       // apoi cleanup-ul de la începutul rulării îl eliberează pentru retry.

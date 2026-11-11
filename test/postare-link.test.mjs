@@ -28,7 +28,7 @@ globalThis.fetch = async (url, opts = {}) => {
     const b = opts.body;
     const tag = u.replace(/^.*v21\.0\//, "").split("?")[0];
     const get = (k) => (b && typeof b.get === "function" ? b.get(k) : null);
-    calls.push({ tag, message: get("message"), link: get("link") });
+    calls.push({ tag, message: get("message") || get("caption"), link: get("link") });
     return new Response(JSON.stringify({ id: "FB_" + calls.length, post_id: "FB_" + calls.length }), { status: 200 });
   }
   throw new Error("fetch neașteptat: " + u);
@@ -38,20 +38,21 @@ const { pool, ensureSchema } = await import("../src/db.js");
 const { runSocialPost } = await import("../src/cron.js");
 await pool.query("DROP TABLE IF EXISTS external_fb_posts, cron_locks, sites CASCADE");
 await ensureSchema();
-await pool.query(`INSERT INTO sites (slug, name, feed_url, fb_page_id, fb_access_token, use_original_title, stories_enabled, link_post, hashtags) VALUES
-  ('ziar', 'Ziar', 'http://feed.test/rss', 'P1', 'T', TRUE, FALSE, TRUE, '#botosani #stiribotosani'),
-  ('clasic', 'Clasic', 'http://feed.test/rss', 'P2', 'T', TRUE, FALSE, FALSE, '')`);
-await pool.query(`INSERT INTO external_fb_posts (page_id, item_url, fb_post_id) VALUES ('P1','__baseline__','baseline'),('P2','__baseline__','baseline')`);
+await pool.query(`INSERT INTO sites (slug, name, feed_url, fb_page_id, fb_access_token, use_original_title, stories_enabled, post_format, hashtags) VALUES
+  ('ziar', 'Ziar', 'http://feed.test/rss', 'P1', 'T', TRUE, FALSE, 'link_card', '#botosani #stiribotosani'),
+  ('clasic', 'Clasic', 'http://feed.test/rss', 'P2', 'T', TRUE, FALSE, 'photo_comment', ''),
+  ('pozatext', 'PozaText', 'http://feed.test/rss', 'P3', 'T', TRUE, FALSE, 'photo_link', '#botosani')`);
+await pool.query(`INSERT INTO external_fb_posts (page_id, item_url, fb_post_id) VALUES ('P1','__baseline__','baseline'),('P2','__baseline__','baseline'),('P3','__baseline__','baseline')`);
 
 let pass = 0, fail = 0;
 const check = (n, c, x = "") => { if (c) { pass++; console.log(`  ✔ ${n}`); } else { fail++; console.log(`  ✘ ${n} ${x}`); } };
 
 const dry = (await runSocialPost({ siteSlug: "ziar", dry: true })).results[0];
 check("dry-run arată modul link și textul titlu + hashtag-uri",
-  dry.wouldPost?.[0]?.mode === "link" && dry.wouldPost[0].caption === "Stire Importanta De Test\n\n#botosani #stiribotosani", JSON.stringify(dry));
+  dry.wouldPost?.[0]?.mode === "link_card" && dry.wouldPost[0].caption === "Stire Importanta De Test\n\n#botosani #stiribotosani", JSON.stringify(dry));
 
 const r = (await runSocialPost({ siteSlug: "ziar" })).results[0];
-check("postarea cu link s-a publicat", r.posted?.mode === "link", JSON.stringify(r));
+check("postarea cu link s-a publicat", r.posted?.mode === "link_card", JSON.stringify(r));
 const ziarCalls = calls.filter((c) => c.tag.startsWith("P1"));
 check("o singură cerere: /feed cu linkul articolului", ziarCalls.length === 1 && ziarCalls[0].tag === "P1/feed" && ziarCalls[0].link === "http://feed.test/stire", JSON.stringify(ziarCalls));
 check("fără comentariu cu linkul", !calls.some((c) => c.tag.includes("/comments")));
@@ -59,6 +60,14 @@ check("fără comentariu cu linkul", !calls.some((c) => c.tag.includes("/comment
 const r2 = (await runSocialPost({ siteSlug: "clasic" })).results[0];
 check("pagina fără bifă postează tot cu poză + comentariu",
   calls.some((c) => c.tag === "P2/photos") && calls.some((c) => c.tag.endsWith("/comments")), JSON.stringify(r2) + JSON.stringify(calls));
+
+const r3 = (await runSocialPost({ siteSlug: "pozatext" })).results[0];
+const p3 = calls.filter((c) => c.tag.startsWith("P3"));
+check("„Poză + link în text”: postare foto cu linkul scris în text + hashtag",
+  r3.posted?.mode === "photo_link" && p3.some((c) => c.tag === "P3/photos" && /👉 Citește articolul: http:\/\/feed\.test\/stire/.test(c.message || "") && /#botosani$/.test(c.message || "")),
+  JSON.stringify(r3) + JSON.stringify(p3));
+check("„Poză + link în text”: fără comentariu", !calls.some((c) => c.tag.startsWith("FB_") && false) && calls.filter((c) => c.tag.endsWith("/comments")).length === 1,
+  JSON.stringify(calls.map((c) => c.tag)));
 
 const { stripCommentLines } = await import("../src/cron.js");
 check("textul AI e curățat de rândul cu „primul comentariu”",
